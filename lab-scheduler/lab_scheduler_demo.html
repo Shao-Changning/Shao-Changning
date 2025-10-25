@@ -1,0 +1,4218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>单细胞上机预约与排班 Demo (MVP)</title>
+<style>
+  /* ===== Base Layout ===== */
+  :root{
+    --lane-height: 56px;
+    --slot-mins: 15;
+    --px-per-min: 0.35;   /* 首屏以 2 天视窗为准（自动计算） */
+    --start-min: 0;       /* 00:00 */
+    --grid-color: #eee;
+    --text-weak: #667085;
+    --card-height: 96px;
+    --row-gap: 6px;
+  }
+  *{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:#111;background:#fafafa;--left-rail-width:0px;--right-rail-width:0px}
+  body.nav-open{--left-rail-width:140px}
+  body.right-open{--right-rail-width:160px}
+  body.view-order .board{display:none}
+  body.view-order .order-board{display:flex}
+  body.view-order .analysis-board{display:none}
+  body.view-analysis .board,
+  body.view-analysis .order-board{display:none}
+  body.view-analysis .analysis-board{display:flex}
+  body.view-experiment .order-board,
+  body.view-experiment .analysis-board{display:none}
+  header{
+    position:sticky;top:0;z-index:5;
+    display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;
+    padding:12px 16px;background:#f8fafc;border-bottom:1px solid #e5e7eb;box-shadow:0 6px 18px rgba(15,23,42,0.04)
+  }
+  header select, header button, header input{padding:6px 8px;border:1px solid #d0d5dd;border-radius:8px;background:#fff}
+  .app-brand{display:flex;flex-direction:column;gap:4px}
+  .app-brand h1{margin:0;font-size:16px;font-weight:600;color:#0f172a}
+  .app-brand span{font-size:11px;color:#475569}
+  header .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .toolbar-gap{flex:1}
+  header .legend{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  main{display:grid;grid-template-columns:var(--left-rail-width) 1fr var(--right-rail-width);gap:0;min-height:calc(100vh - 64px);transition:grid-template-columns .25s ease}
+  aside{margin:0;padding:0}
+  .side-tools{display:flex;flex-direction:column;align-items:stretch;gap:12px;width:100%}
+  .badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 8px;font-size:12px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .b-green{background:#e9f9ee;color:#037a48}
+  .b-yellow{background:#fff7e6;color:#b25e00}
+  .b-purple{background:#f4eaff;color:#7a2e9c}
+  .b-blue{background:#e8f1ff;color:#1849a9}
+  .legend{display:flex;gap:6px;flex-wrap:wrap}
+  .side-placeholder{width:100%;min-height:60px;border:1px dashed #d0d5dd;border-radius:12px;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#98a2b3;font-size:12px}
+  .board{overflow:auto;background:#fff;position:relative;height:calc(100vh - 64px)}
+  .order-board,.analysis-board{display:none;flex-direction:column;background:#f8fafc;height:calc(100vh - 64px);overflow:hidden}
+  .order-board-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #e2e8f0;background:#fff;box-shadow:0 4px 12px rgba(15,23,42,0.05)}
+  .order-board-header h2{margin:0;font-size:18px;color:#0f172a}
+  .order-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .order-filters input{border:1px solid #d0d5dd;border-radius:8px;padding:6px 8px;font-size:12px}
+  .order-filters button{border:1px solid #d0d5dd;border-radius:8px;padding:6px 10px;background:#fff;font-size:12px;color:#1f2937;cursor:pointer}
+  .order-columns{flex:1;display:grid;grid-template-columns:repeat(5,minmax(180px,1fr)) 320px;gap:16px;padding:20px 24px;overflow:auto}
+  .order-column{background:#fff;border:1px solid #e2e8f0;border-radius:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 6px 16px rgba(15,23,42,0.05);min-height:280px}
+  .order-column-head{padding:14px 16px;border-bottom:1px solid #edf2f7;display:flex;flex-direction:column;gap:8px}
+  .order-column-head h3{margin:0;font-size:14px;color:#0f172a}
+  .order-column-head input{border:1px solid #d0d5dd;border-radius:8px;padding:6px 8px;font-size:12px}
+  .order-column-body{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+  .order-card{border:1px solid #dbeafe;border-radius:12px;padding:10px 12px;background:#f8fbff;font-size:12px;color:#0f172a;box-shadow:0 4px 10px rgba(15,23,42,0.04);display:flex;flex-direction:column;gap:6px}
+  .order-card strong{font-size:13px}
+  .order-card .meta{display:flex;gap:8px;flex-wrap:wrap;color:#475569}
+  .order-card .tag{display:inline-block;padding:2px 6px;border-radius:999px;background:#e0f2ff;color:#0369a1;font-size:11px}
+  .order-details-panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:18px 16px;box-shadow:0 8px 18px rgba(15,23,42,0.06);display:flex;flex-direction:column;gap:12px}
+  .order-details-panel h3{margin:0;font-size:15px;color:#0f172a}
+  .order-details-panel .placeholder{flex:1;border:1px dashed #d0d5dd;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;padding:16px}
+  .analysis-board{align-items:center;justify-content:center;color:#64748b;font-size:16px}
+  .view-order #nowLine,.view-order #nowBadge,.view-order #centerLine,
+  .view-analysis #nowLine,.view-analysis #nowBadge,.view-analysis #centerLine{display:none}
+  .nav-rail{display:flex;flex-direction:column;gap:16px;border-right:1px solid #e5e7eb;background:#fff;padding:16px 12px;position:sticky;top:64px;height:calc(100vh - 64px);overflow:auto;transition:padding .25s ease,border-color .25s ease}
+  .nav-panel{display:flex;flex-direction:column;gap:12px}
+  .nav-title{font-size:11px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase}
+.nav-primary{display:flex;flex-direction:column;gap:16px}
+.nav-primary.vertical{padding:0}
+.nav-category{display:flex;flex-direction:column;gap:10px}
+.nav-category-title{font-size:11px;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;font-weight:600;margin-left:2px}
+.nav-item.nav-major{display:flex;flex-direction:column;align-items:flex-start;gap:4px;border-radius:16px;padding:14px 16px;background:#fff;border:1px solid #e2e8f0;color:#0f172a;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(15,23,42,0.05);transition:all .2s;font-size:13px;text-align:left}
+.nav-item.nav-major small{font-weight:400;color:#64748b;font-size:11px}
+.nav-item.nav-major.active small{color:rgba(255,255,255,0.85)}
+.nav-item.nav-major:hover{border-color:#2563eb;background:#eef2ff}
+.nav-item.nav-major.active{border-color:#1d4ed8;background:#1d4ed8;color:#fff;box-shadow:0 14px 30px rgba(29,78,216,0.22)}
+.nav-chip-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.nav-chip-grid .nav-chip{border:none;border-radius:12px;padding:10px;background:#fff;color:#1f2937;border:1px solid #e2e8f0;font-size:12px;cursor:pointer;transition:all .2s;box-shadow:0 4px 12px rgba(15,23,42,0.05);text-align:center}
+.nav-chip-grid .nav-chip:hover{border-color:#94a3b8;background:#f1f5f9}
+.nav-chip-grid .nav-chip.active{border-color:#1d4ed8;background:#eef2ff;color:#1d4ed8;font-weight:600;box-shadow:0 10px 20px rgba(37,99,235,0.12)}
+  .side-panel{display:flex;flex-direction:column;gap:12px}
+  .right-rail{display:flex;flex-direction:column;gap:12px;border-left:1px solid #e5e7eb;background:#fff;padding:16px 12px;position:sticky;top:64px;height:calc(100vh - 64px);overflow:auto;transition:padding .25s ease,border-color .25s ease}
+  .right-card{border:1px dashed #d0d5dd;border-radius:12px;background:#f8fafc;color:#94a3b8;font-size:12px;padding:12px;text-align:center;min-height:96px;display:flex;align-items:center;justify-content:center}
+  body:not(.nav-open) .nav-rail{padding:0;border-right:1px solid transparent;pointer-events:none;overflow:hidden}
+  .panel-scrim{position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:8;display:none}
+  .panel-scrim.active{display:block}
+  .product-panel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:95vw;height:95vh;max-width:1760px;max-height:960px;background:#fff;border:1px solid #e2e8f0;border-radius:28px;box-shadow:0 60px 160px rgba(15,23,42,0.28);display:flex;overflow:hidden;z-index:9}
+  .product-panel.hidden{display:none}
+  .product-panel .side{width:220px;border-right:1px solid #e2e8f0;background:#f8fafc;padding:20px 16px;display:flex;flex-direction:column;gap:16px}
+  .product-panel .side h3{margin:0;font-size:16px;font-weight:600;color:#0f172a}
+  .product-panel .tab-list{display:flex;flex-direction:column;gap:8px}
+  .product-panel .tab-btn{border:none;border-radius:10px;padding:10px 12px;text-align:left;font-size:13px;cursor:pointer;background:#fff;color:#1f2937;box-shadow:0 4px 12px rgba(15,23,42,0.05);transition:all .2s}
+  .product-panel .tab-btn:hover{background:#eef2ff}
+  .product-panel .tab-btn.active{background:#1d4ed8;color:#fff;box-shadow:0 8px 20px rgba(29,78,216,0.24)}
+  .product-panel .body{flex:1;display:flex;flex-direction:column;background:#fff}
+  .product-panel header{display:flex;align-items:center;justify-content:space-between;padding:28px 36px;border-bottom:1px solid #e2e8f0;background:#f9fafc}
+  .product-panel header h2{margin:0;font-size:22px;color:#0f172a}
+  .product-panel header .actions{display:flex;gap:10px;align-items:center}
+  .product-panel header button{padding:6px 10px;border-radius:8px;border:1px solid #cbd5f5;background:#fff;cursor:pointer;font-size:12px;color:#1d4ed8}
+  .product-panel header button.primary{background:#1d4ed8;color:#fff;border-color:#1d4ed8}
+  .product-sections{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:18px;background:#f8fafc}
+  .product-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px 18px;box-shadow:0 6px 14px rgba(15,23,42,0.05);display:flex;flex-direction:column;gap:14px}
+  .product-card h4{margin:0;font-size:15px;font-weight:600;color:#0f172a}
+  .product-card p{margin:0;font-size:12px;color:#64748b}
+  .product-card table{width:100%;border-collapse:collapse;font-size:12px}
+  .product-card table th,.product-card table td{border-bottom:1px solid #edf2f7;padding:8px 6px;text-align:left}
+  .product-card table th{background:#f9fafc;color:#475569;font-weight:600}
+  .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .form-field{display:flex;flex-direction:column;gap:4px}
+  .form-field label{font-size:12px;color:#4b5563;font-weight:600}
+  .form-field input,.form-field select,.form-field textarea{border:1px solid #d0d5dd;border-radius:8px;padding:7px 8px;font-size:12px;background:#fff}
+  .form-field textarea{min-height:64px;resize:vertical}
+  .component-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+  .component-card{border:1px dashed #cbd5f5;border-radius:12px;padding:12px;background:#f8fafc;color:#1d4ed8;font-size:12px;display:flex;flex-direction:column;gap:6px}
+  .timeline-preview{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+  .timeline-stage{flex:1 1 120px;background:#eef2ff;border-radius:10px;padding:10px 12px;border:1px solid #cbd5f5;color:#1d4ed8;font-size:12px;box-shadow:0 4px 12px rgba(29,78,216,0.12)}
+  .rail-toggle{position:fixed;top:120px;z-index:7;background:#1d4ed8;color:#fff;border:none;border-radius:12px;padding:8px 6px;font-size:11px;cursor:pointer;box-shadow:0 6px 16px rgba(37,99,235,0.2);transition:transform .25s ease,background .2s ease}
+  .rail-toggle:hover{background:#2563eb}
+  .rail-toggle.left{left:calc(8px + var(--left-rail-width))}
+  .rail-toggle.right{right:calc(8px + var(--right-rail-width))}
+  body:not(.nav-open) .rail-toggle.left{transform:translateX(-16px)}
+  body:not(.right-open) .rail-toggle.right{transform:translateX(16px)}
+  .timeline{position:sticky;top:0;background:#fff;z-index:3;border-bottom:1px solid #e5e7eb;padding-left:180px}
+  .day-bands{position:absolute;left:180px;top:0;bottom:0;width:100%;pointer-events:none;z-index:0}
+  .day-band{position:absolute;top:0;bottom:0;background:#f8fafc}
+  .day-band:nth-child(odd){background:#ffffff}
+  .timebar{position:relative;height:32px;min-width:100%;}
+  .tick{position:absolute;top:0;height:100%;border-left:1px solid var(--grid-color);color:#98a2b3;font-size:11px;padding-left:2px}
+  .day-sep{position:absolute;top:0;bottom:0;border-left:2px solid #e2e8f0;opacity:.9}
+  .now-line{position:absolute;top:0;bottom:0;border-left:2px dashed #ef4444;z-index:10;pointer-events:none}
+  .now-badge{position:absolute;top:-6px;transform:translate(-50%,-100%);background:#ef4444;color:#fff;font-size:10px;padding:2px 6px;border-radius:6px;white-space:nowrap;z-index:11;pointer-events:none}
+  .center-line{position:absolute;top:32px;height:calc(100% - 32px);border-left:2px dashed #16a34a;z-index:4;pointer-events:none}
+  .pending-counter{position:absolute;top:48px;transform:translateY(-100%);font-size:12px;color:#fff;background:rgba(239,68,68,0.92);padding:4px 10px;border-radius:999px;box-shadow:0 6px 16px rgba(248,113,113,0.35);pointer-events:none;z-index:8;font-weight:600;letter-spacing:0.5px}
+  .pending-counter::after{content:'';position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:rgba(239,68,68,0.92) transparent transparent transparent}
+  .day-label{position:absolute;top:0;height:100%;font-size:12px;color:#475467;text-align:center;line-height:32px}
+  .grid{position:relative;padding-top:32px}
+  .lane{display:flex;border-bottom:1px solid #f1f3f5;position:relative;align-items:stretch;}
+  .lane.lane-unassigned{position:sticky;top:32px;z-index:6;background:#f8fafc;border-bottom:1px solid #d4dbe7;box-shadow:0 6px 12px rgba(15,23,42,0.08)}
+  .lane.lane-unassigned .track{background:repeating-linear-gradient(90deg,#f8fafc 0,#f8fafc calc(var(--px-per-min)*var(--slot-mins)),#f1f5f9 calc(var(--px-per-min)*var(--slot-mins)),#f1f5f9 calc(var(--px-per-min)*var(--slot-mins)*2));}
+  .lane.lane-unassigned .label{background:#f8fafc}
+  .lane .label{width:180px;display:flex;flex-direction:column;justify-content:center;gap:6px;padding:10px 8px;border-right:1px solid #f1f3f5;background:#fff;position:sticky;left:0;z-index:2}
+  .lane .label .name{font-weight:600}
+  .lane .label .shift{color:#475467;font-size:12px}
+  .lane .track{position:relative;flex:1;min-width:unset;background:repeating-linear-gradient(90deg, #fff 0, #fff calc(var(--px-per-min)*var(--slot-mins)), #f9fafb calc(var(--px-per-min)*var(--slot-mins)), #f9fafb calc(var(--px-per-min)*var(--slot-mins)*2));}
+  .lane.drop-target .track{outline:2px dashed #2563eb;outline-offset:-4px;background-color:rgba(37,99,235,0.08);}
+  .lane.drop-target .label{background:rgba(37,99,235,0.08);}
+  .block{position:absolute;border-radius:10px;border:1px solid #e5e7eb;box-shadow:0 4px 10px rgba(15,23,42,0.08);overflow:hidden;cursor:grab;background:#fff;transition:box-shadow .2s, transform .2s;display:flex;flex-direction:column;justify-content:center;padding:6px 8px}
+  .block.dragging{box-shadow:0 12px 24px rgba(15,23,42,0.18);z-index:10}
+  .group-card{position:absolute;z-index:1;display:flex;flex-direction:column;justify-content:flex-start;gap:6px;padding:10px 12px 8px;border-radius:12px;border:1px solid #d0d5dd;background:#fff;box-shadow:0 12px 28px rgba(15,23,42,0.14);cursor:grab;transition:box-shadow .2s,transform .2s}
+  .group-card.dragging{box-shadow:0 20px 42px rgba(15,23,42,0.2);transform:translateY(-2px)}
+  .group-card.pending-card{border-color:#22c55e;background:#f6ffed;padding:8px 10px;gap:4px}
+  .group-card.pending-card .flow-row{margin-top:2px}
+  .group-card.pending-card .row-label{display:none}
+  .group-card.pending-card .flow-arrow{display:none}
+  .group-card.pending-card .flow-track{gap:4px;flex-wrap:nowrap}
+  .group-card.pending-card .copy-chip,
+  .group-card.pending-card .flow-row.flow-copy{display:none}
+  .group-card.pending-card .handle{display:none}
+  .group-card.pending-card .flow-chip{min-width:auto;padding:2px 8px;font-size:11px}
+  .group-card.pending-card.pending-left{border-color:#16a34a}
+  .group-card.pending-card.pending-right{border-color:#2563eb}
+  .group-card.pending-card .pending-meta{font-size:11px;color:#475467;margin-top:2px;display:flex;gap:6px;flex-wrap:wrap}
+  .group-card.pending-card.urgency-due{border-color:#dc2626;background:#fee2e2}
+  .group-card.pending-card.urgency-imminent{border-color:#fb923c;background:#fff4e6}
+  .group-card.pending-card.urgency-soon{border-color:#f97316;background:#fff7db}
+  .plan-preview{position:fixed;z-index:9999;background:rgba(15,23,42,0.92);color:#f8fafc;font-size:11px;padding:6px 10px;border-radius:8px;pointer-events:none;box-shadow:0 8px 20px rgba(15,23,42,0.35);display:none;white-space:nowrap}
+  .group-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#1f2937}
+  .group-head .order-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;letter-spacing:.3px}
+  .flow-row{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#334155}
+  .flow-row .flow-track{order:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .flow-row .row-label{order:2;font-weight:600;color:#475467;min-width:20px;margin-left:6px}
+  .flow-arrow{color:#94a3b8;font-size:12px}
+  .flow-chip,.copy-chip{display:inline-flex;align-items:center;justify-content:center;padding:2px 10px;border-radius:999px;cursor:grab;user-select:none;font-weight:500;transition:background .15s,color .15s}
+  .flow-chip{background:#e2e8f0;color:#1f2937}
+  .copy-chip{background:#ede9fe;color:#4338ca}
+  .flow-chip:hover,.copy-chip:hover{filter:brightness(0.95)}
+  .flow-chip[data-stage="receive"]{background:#dbeafe;color:#1d4ed8}
+  .flow-chip[data-stage="digest"]{background:#dcfce7;color:#047857}
+  .flow-chip[data-stage="flow"]{background:#cffafe;color:#0369a1}
+  .flow-chip[data-stage="sequencing"]{background:#fef3c7;color:#b45309}
+  .flow-chip[data-stage="emulsion"]{background:#ede9fe;color:#5b21b6}
+  .copy-chip[data-stage="receive"]{background:#eff6ff;color:#1d4ed8}
+  .copy-chip[data-stage="digest"]{background:#ecfdf5;color:#047857}
+  .copy-chip[data-stage="flow"]{background:#e0f2fe;color:#0369a1}
+  .copy-chip[data-stage="sequencing"]{background:#fef9c3;color:#b45309}
+  .copy-chip[data-stage="emulsion"]{background:#f3e8ff;color:#5b21b6}
+  .group-card.single-stage .flow-row{align-items:flex-start}
+  .group-card.single-stage .flow-track{flex-direction:column;align-items:flex-start}
+  .group-card.single-stage .flow-chip,
+  .group-card.single-stage .copy-chip{writing-mode:vertical-rl;padding:6px 6px;min-height:48px}
+  .clone-card{border-style:dashed;background:#f8fafc}
+  .clone-highlight{outline:2px solid #6366f1;outline-offset:2px}
+  .group-card.hint-snap-prev::before,
+  .group-card.hint-detach-prev::before,
+  .group-card.hint-snap-next::after,
+  .group-card.hint-detach-next::after{
+    content:'';position:absolute;top:8px;bottom:8px;width:10px;border-radius:6px;pointer-events:none;opacity:.85
+  }
+  .group-card.hint-snap-prev::before{left:-6px;border-left:3px solid rgba(34,197,94,.9);background:linear-gradient(90deg,rgba(34,197,94,.25),transparent)}
+  .group-card.hint-detach-prev::before{left:-6px;border-left:3px dashed rgba(249,115,22,.9);background:linear-gradient(90deg,rgba(249,115,22,.18),transparent)}
+  .group-card.hint-snap-next::after{right:-6px;border-right:3px solid rgba(34,197,94,.9);background:linear-gradient(270deg,rgba(34,197,94,.25),transparent)}
+  .group-card.hint-detach-next::after{right:-6px;border-right:3px dashed rgba(249,115,22,.9);background:linear-gradient(270deg,rgba(249,115,22,.18),transparent)}
+  .group-card.hint-clone-merge{box-shadow:0 0 0 3px rgba(59,130,246,0.35)}
+  .group-card.hint-clone-free{box-shadow:0 0 0 2px rgba(148,163,184,0.35)}
+  .clone-header{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;color:#1f2937}
+  .clone-header .order-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+  .clone-tag{background:#ede9fe;color:#4338ca;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+  .clone-stage{display:flex;align-items:center;justify-content:center;padding:10px 6px;min-height:48px}
+  .clone-stage .stage-name{writing-mode:vertical-rl;text-orientation:upright;font-size:13px;font-weight:600;color:#334155;letter-spacing:1px}
+.order-board,.analysis-board{display:none;flex-direction:column;background:#f8fafc;height:calc(100vh - 64px);overflow:hidden}
+  .order-board-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #e2e8f0;background:#fff;box-shadow:0 4px 12px rgba(15,23,42,0.05)}
+  .order-board-header h2{margin:0;font-size:18px;font-weight:600;color:#0f172a}
+  .order-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .order-filters input,.order-filters select{border:1px solid #d0d5dd;border-radius:8px;padding:6px 8px;font-size:12px;background:#fff}
+  .order-filters button{border:1px solid #d0d5dd;border-radius:8px;padding:6px 10px;background:#fff;font-size:12px;color:#1f2937;cursor:pointer}
+  .order-scenario-note{padding:12px 24px;color:#475569;font-size:12px;background:#f1f5f9;border-bottom:1px dashed #dbeafe}
+  .order-scenario-note strong{color:#1d4ed8}
+.order-columns{flex:1;display:grid;grid-template-columns:repeat(5,minmax(220px,1fr)) 360px;gap:16px;padding:20px 24px;overflow:auto}
+.order-column{background:#fff;border:1px solid #e2e8f0;border-radius:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 6px 16px rgba(15,23,42,0.05);min-height:380px;position:relative}
+.order-column-head{padding:14px 16px;border-bottom:1px solid #edf2f7;display:flex;flex-direction:column;gap:8px}
+.order-column-head h3{margin:0;font-size:14px;color:#0f172a}
+.order-column-head input{border:1px solid #d0d5dd;border-radius:8px;padding:6px 8px;font-size:12px}
+.order-column-head .chips{display:flex;gap:6px;flex-wrap:wrap}
+.order-column-head .chips span{background:#e2e8f0;color:#475569;font-size:11px;padding:2px 6px;border-radius:999px}
+.order-column-body{flex:1;padding:12px 16px 18px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+  .order-column::after{content:'';position:absolute;right:-10px;top:56px;bottom:44px;width:1px;background:repeating-linear-gradient(180deg,#dbeafe 0,#dbeafe 8px,transparent 8px,transparent 16px)}
+  .order-column:last-of-type::after{display:none}
+  .order-card{border:1px solid #dbeafe;border-radius:14px;padding:12px 14px;background:#f8fbff;font-size:12px;color:#0f172a;box-shadow:0 8px 16px rgba(15,23,42,0.08);display:flex;flex-direction:column;gap:8px;position:relative}
+  .order-card::before{content:'';position:absolute;left:-18px;top:20px;width:14px;height:14px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 4px rgba(148,163,184,0.2)}
+.order-column:nth-of-type(1) .order-card::before{background:#38bdf8}
+.order-column:nth-of-type(2) .order-card::before{background:#34d399}
+.order-column:nth-of-type(3) .order-card::before{background:#f97316}
+.order-column:nth-of-type(4) .order-card::before{background:#facc15}
+.order-column:nth-of-type(5) .order-card::before{background:#a855f7}
+.order-card strong{font-size:13px;display:flex;align-items:center;gap:8px}
+.order-card strong .avatar{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#1d4ed8;color:#fff;font-weight:700;font-size:12px}
+.order-card .tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#e0f2ff;color:#0369a1;font-size:11px;font-weight:600}
+.order-card .meta{display:flex;gap:10px;flex-wrap:wrap;color:#475569}
+.order-card .meta span{display:flex;align-items:center;gap:4px}
+.order-card .meta span::before{content:'•';color:#94a3b8}
+.order-card .meta span:first-child::before{display:none}
+.order-card .status{display:flex;gap:6px;flex-wrap:wrap}
+.order-card .status span{background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:6px;font-size:11px}
+.order-card .status span.warning{background:#fef3c7;color:#b45309}
+.order-card .status span.danger{background:#fee2e2;color:#b91c1c}
+  .order-card .progress{height:6px;border-radius:999px;background:#e2e8f0;overflow:hidden}
+  .order-card .progress div{height:100%;background:linear-gradient(90deg,#3b82f6,#22d3ee)}
+  .order-card .actions{display:flex;gap:6px}
+  .order-card .actions button{border:none;border-radius:8px;padding:4px 8px;background:#1d4ed8;color:#fff;font-size:11px;cursor:pointer}
+.order-card .actions button.secondary{background:#e2e8f0;color:#1f2937}
+  .order-column .empty{padding:16px;border:1px dashed #dbeafe;border-radius:12px;color:#94a3b8;text-align:center;font-size:12px;background:#f8fbff}
+  .order-column .empty strong{display:block;color:#475569;margin-bottom:4px}
+.order-card.selected{border-color:#2563eb;background:#eef2ff;box-shadow:0 10px 24px rgba(37,99,235,0.18)}
+  .order-card.match{border-color:#34d399;background:#ecfdf5}
+  .order-card.disabled{opacity:.45;pointer-events:none}
+  .order-card.focus{border-color:#f97316;background:#fff7ed}
+  .order-column .link-note{font-size:11px;color:#94a3b8;padding:0 14px 6px}
+.order-details-panel{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:18px 18px;box-shadow:0 8px 18px rgba(15,23,42,0.08);display:flex;flex-direction:column;gap:16px;position:relative}
+.order-details-panel::before{content:'';position:absolute;left:-12px;top:80px;width:12px;height:2px;background:#1d4ed8}
+.order-details-panel h3{margin:0;font-size:15px;font-weight:600;color:#0f172a}
+.order-details-panel .detail-block{border:1px dashed #cbd5f5;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:#f8fbff}
+.order-details-panel .detail-block .title{font-weight:600;color:#1d4ed8}
+.order-details-panel .detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;font-size:12px;color:#475569}
+.order-details-panel .timeline{display:flex;flex-direction:column;gap:10px;max-height:220px;overflow:auto}
+.order-details-panel .timeline-item{border-left:3px solid #60a5fa;padding-left:10px;position:relative;font-size:12px;color:#475569}
+.order-details-panel .timeline-item::before{content:'';position:absolute;left:-7px;top:4px;width:10px;height:10px;border-radius:50%;background:#1d4ed8}
+.order-details-panel .timeline-item .time{font-size:11px;color:#94a3b8}
+.analysis-board{align-items:center;justify-content:center;color:#64748b;font-size:16px}
+  .group-card.hint-clone-target{box-shadow:0 0 0 3px rgba(59,130,246,0.35),0 12px 28px rgba(15,23,42,0.14);transition:box-shadow .15s}
+  .group-card.snap-target-prev,
+  .group-card.snap-target-next{box-shadow:0 0 0 3px rgba(34,197,94,0.45),0 16px 36px rgba(15,23,42,0.2)}
+  .group-card.snap-target-detach-prev,
+  .group-card.snap-target-detach-next{box-shadow:0 0 0 3px rgba(249,115,22,0.45),0 16px 36px rgba(15,23,42,0.2)}
+  .group-card.snap-target-clone{box-shadow:0 0 0 3px rgba(96,165,250,0.5),0 16px 36px rgba(15,23,42,0.2)}
+  .snap-zone{position:absolute;pointer-events:none;border-radius:14px;display:none;z-index:30;mix-blend-mode:normal;box-sizing:border-box}
+  .snap-zone::before{content:'';position:absolute;left:-6px;right:-6px;top:-6px;bottom:-6px;border-radius:16px}
+  .snap-zone-merge{background:rgba(34,197,94,0.25);border:2px solid rgba(34,197,94,0.55)}
+  .snap-zone-merge::before{border:1px dashed rgba(34,197,94,0.45)}
+  .snap-zone-detach{background:transparent;border:2px dashed rgba(249,115,22,0.55)}
+  .snap-zone-detach::before{border:1px solid transparent}
+  .snap-zone-clone{background:rgba(59,130,246,0.18);border:2px solid rgba(59,130,246,0.5)}
+  .snap-zone-clone::before{border:1px dashed rgba(59,130,246,0.4)}
+  .stage-config{grid-column:1 / -1;display:flex;flex-direction:column;gap:8px;padding:10px;border:1px dashed #d0d5dd;border-radius:10px;background:#f8fafc}
+  .stage-config .stage-row{display:flex;flex-wrap:wrap;gap:8px}
+  .stage-toggle{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid #d0d5dd;background:#fff;cursor:pointer;font-size:12px;color:#475467;gap:6px}
+  .stage-toggle.active{background:#111;color:#fff;border-color:#111}
+  .stage-toggle.optional{opacity:.8}
+  .stage-toggle[data-enabled='false']{opacity:.4}
+  .stage-toggle input{display:none}
+  .stage-config .stage-legend{font-size:12px;color:#98a2b3}
+  .block.status-bg-pendingreserve,
+  .block.status-bg-pendingassign,
+  .block.status-bg-pendingconfirm,
+  .block.status-bg-draft{background:#fef9c3;border-color:#facc15}
+  .block.status-bg-ongoing{background:#e0f2fe;border-color:#38bdf8}
+  .block.status-bg-locked{background:#d1fae5;border-color:#34d399}
+  .block.status-bg-done{background:#dcfce7;border-color:#22c55e}
+  .block.status-bg-exception,
+  .block.status-bg-cancelled{background:#fee2e2;border-color:#f87171}
+  .chain-links{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2}
+  @keyframes dashFlow{to{stroke-dashoffset:-28}}
+  .chain-links path.chain-path{fill:none;stroke-width:1.8;stroke-dasharray:10 8;stroke-linecap:round;stroke-linejoin:round;animation:dashFlow 2.8s linear infinite;opacity:.9}
+  .chain-links path.clone-link{fill:none;stroke-width:1.4;stroke-dasharray:6 8;stroke-linecap:round;stroke-linejoin:round;animation:dashFlow 2s linear infinite;opacity:.85}
+  .chain-links circle.chain-dot{stroke:#fff;stroke-width:1.2;opacity:.95}
+  .type-receive{border-top:4px solid #2563eb}
+  .type-digest{border-top:4px solid #059669}
+  .type-flow{border-top:4px solid #0ea5e9}
+  .type-sequencing{border-top:4px solid #d97706}
+  .type-emulsion{border-top:4px solid #7c3aed}
+  .type-default{border-top:4px solid #94a3b8}
+  .overlap-soft{outline:2px dashed #f59e0b}
+  .overlap-hard{outline:2px solid #ef4444}
+  .handle{position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.06)}
+  .hint{font-size:12px;color:var(--text-weak)}
+  .toast{position:fixed;right:16px;bottom:16px;background:#111;color:#fff;padding:10px 12px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,0.25);opacity:.95}
+  .app-brand{display:flex;flex-direction:column;gap:4px}
+  .app-brand h1{margin:0;font-size:20px;font-weight:600;color:#0f172a}
+  .app-brand span{font-size:12px;color:#475569}
+.nav-primary{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.nav-primary.vertical{flex-direction:column;align-items:stretch;padding:16px;border-radius:16px;border:1px solid #e2e8f0;background:#fff;box-shadow:0 10px 30px rgba(15,23,42,0.05);gap:8px}
+.nav-item{position:relative;border:none;background:#fff;color:#1f2937;padding:6px 14px;border-radius:999px;font-size:13px;cursor:pointer;border:1px solid transparent;display:flex;align-items:center;gap:6px;transition:all .2s}
+.nav-primary.vertical .nav-item{border-radius:10px;padding:8px 12px;justify-content:space-between}
+  /* Modal */
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal{width:680px;max-width:92vw;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.18);overflow:hidden}
+  .modal header{position:relative;top:auto;border-bottom:1px solid #eef2f7;padding:10px 14px;display:flex;justify-content:space-between;align-items:center}
+  .modal header h3{margin:0;font-size:15px}
+.modal .create-form{padding:18px;display:flex;flex-direction:column;gap:16px;background:#f8fafc;max-height:70vh;overflow:auto}
+.form-section{background:#fff;border:1px solid #e4e7ec;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.section-title{font-size:13px;font-weight:600;color:#1f2937}
+.section-subtitle{font-size:12px;font-weight:600;color:#475467}
+.section-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form-field{display:flex;flex-direction:column;gap:4px}
+.form-field span{font-size:12px;color:#475467}
+.form-field input,.form-field select,.form-field textarea{width:100%;padding:7px 9px;border:1px solid #d0d5dd;border-radius:8px;font-size:13px;background:#fff}
+.form-field textarea{min-height:64px;resize:vertical}
+.form-field.full{grid-column:1 / -1}
+.finance-box{border:1px dashed #d0d5dd;border-radius:10px;padding:10px 12px;background:#fefce8;color:#854d0e;font-size:12px;line-height:1.5}
+.stage-config-wrap{display:flex;flex-direction:column;gap:10px}
+.stage-readonly{display:none;flex-wrap:wrap;gap:8px}
+.stage-readonly .badge{background:#e0f2fe;color:#0c4a6e;padding:4px 8px;border-radius:999px;font-size:12px}
+.experiment-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.experiment-fields .form-field{margin:0}
+.experiment-fields .empty{grid-column:1 / -1;font-size:12px;color:#94a3b8;padding:12px;border:1px dashed #cbd5f5;border-radius:10px;background:#f1f5f9;text-align:center}
+.create-options{display:flex;align-items:center;gap:8px;font-size:12px;color:#475467}
+.create-options input{width:16px;height:16px;accent-color:#2563eb}
+.modal footer{display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #eef2f7;padding:10px 14px;background:#fafafa}
+.btn{padding:6px 10px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer}
+.btn.primary{background:#111;color:#fff;border-color:#111}
+.modal-mask.show{display:flex}
+.modal.editing .stage-config{display:none}
+.modal.editing .stage-readonly{display:flex}
+.modal.editing .create-options input{pointer-events:none;opacity:0.5}
+.modal.editing .create-options span{opacity:0.6}
+.sample-placeholder{min-height:70px;border:1px dashed #d0d5dd;border-radius:10px;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px}
+.toolbar{display:flex;gap:8px;align-items:center}
+.pill{padding:4px 8px;border:1px solid #d0d5dd;border-radius:999px;background:#fff;cursor:pointer}
+.pill[aria-pressed="true"]{background:#111;color:#fff;border-color:#111}
+.hidden{display:none !important}
+.anon .lane .label .name{filter: blur(3px);}
+  .capacity-bar{position:absolute;left:180px;right:0;top:0;height:3px;background:linear-gradient(90deg,#22c55e 0%,#f59e0b 60%,#ef4444 100%);opacity:.2}
+  /* 迷你 KPI（页首右上角） */
+  .kpi-mini{display:flex;gap:10px;align-items:center;margin-right:12px}
+.kpi-mini div{display:flex;gap:4px;align-items:baseline;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 6px}
+.kpi-mini .k{display:block;font-size:10px;color:#98a2b3}
+.kpi-mini strong{font-size:13px;color:#111}
+.group-head{position:relative;display:flex;align-items:center;gap:6px;padding-right:32px}
+.card-settings{position:absolute;right:-4px;top:-6px;width:26px;height:26px;border:none;background:rgba(15,23,42,0.08);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#1f2937;transition:background 0.2s}
+.card-settings:hover{background:rgba(15,23,42,0.18)}
+.card-settings:active{background:rgba(15,23,42,0.32);color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <div class="app-brand">
+    <h1>单细胞运营控制台</h1>
+    <span>实验数据一体化排程 Demo</span>
+  </div>
+  <div class="toolbar">
+    <label class="hint">视图：</label>
+    <button class="pill" id="viewSelf">只看自己</button>
+    <button class="pill" id="viewGroup">本组</button>
+    <button class="pill" id="viewLab">上机室</button>
+    <button class="pill" id="viewAll" aria-pressed="true">全部</button>
+    <label class="hint">角色：</label>
+    <select id="roleSel">
+      <option value="lead">主管</option>
+      <option value="staff">上机员</option>
+      <option value="sales">销售（匿名）</option>
+    </select>
+    <div class="toolbar-gap"></div>
+    <button id="zoomIn" class="pill">放大 +</button>
+    <button id="zoomOut" class="pill">缩小 −</button>
+    <button id="openCreate" class="pill brand">+ 新建派单</button>
+    <button id="toggleAnon" class="pill">匿名开关</button>
+    <button id="btnNow" class="pill">定位现在</button>
+    <button id="btnSelfCheck" class="pill">自检并修复</button>
+    <div class="kpi-mini" id="kpiMini">
+      <div><span class="k">兑现</span><strong>96%</strong></div>
+      <div><span class="k">准时</span><strong>91%</strong></div>
+      <div><span class="k">周转</span><strong>4.6</strong></div>
+      <div><span class="k">改期</span><strong>8%</strong></div>
+    </div>
+  </div>
+  <div class="legend">
+    <span class="badge b-blue">收样</span>
+    <span class="badge b-green">流式（流式）</span>
+    <span class="badge b-yellow">上机/大样本</span>
+    <span class="badge b-purple">上门</span>
+  </div>
+</header>
+<button class="rail-toggle left" id="toggleNav" type="button">导航</button>
+<button class="rail-toggle right" id="toggleRight" type="button">侧栏</button>
+<main>
+  <aside class="nav-rail">
+    <div class="nav-panel">
+      <div class="nav-title">导航</div>
+      <nav class="nav-primary vertical" role="navigation">
+        <div class="nav-category">
+          <span class="nav-category-title">实验中心</span>
+          <button class="nav-item nav-major active" data-main-view="experiment">实验运营<br><small>实验排班 · 建库 · 送测</small></button>
+        </div>
+        <div class="nav-category">
+          <span class="nav-category-title">信息运营</span>
+          <div class="nav-chip-grid">
+            <button class="nav-chip" data-info="customer">客户管理</button>
+          <button class="nav-chip" data-info="product">产品管理</button>
+            <button class="nav-chip" data-info="dispatch">派单管理</button>
+          </div>
+        </div>
+        <div class="nav-category">
+          <span class="nav-category-title">存储与交付运营</span>
+          <div class="nav-chip-grid">
+            <button class="nav-chip" data-storage="sample">样本管理</button>
+            <button class="nav-chip" data-storage="data">数据管理</button>
+            <button class="nav-chip" data-storage="handoff">交付管理</button>
+          </div>
+        </div>
+        <div class="nav-category">
+          <span class="nav-category-title">订单运营</span>
+          <button class="nav-item nav-major" data-main-view="order">订单运营<br><small>售前 · 合同 · 开票</small></button>
+        </div>
+        <div class="nav-category">
+          <span class="nav-category-title">分析运营</span>
+          <button class="nav-item nav-major" data-main-view="analysis">分析运营<br><small>项目组 · 分析流程</small></button>
+        </div>
+      </nav>
+    </div>
+    <div class="side-panel" id="statusBoard">
+      <div class="side-placeholder">工具区</div>
+    </div>
+  </aside>
+  <section class="board" id="board">
+    <div class="timeline">
+      <div class="timebar" id="timebar"></div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+  <section class="order-board" id="orderBoard" aria-label="订单运营">
+    <header class="order-board-header">
+      <h2>订单运营脉络图</h2>
+      <div class="order-filters">
+        <label for="orderScenario" class="sr-only">展示场景</label>
+        <select id="orderScenario">
+          <option value="unitSearch">场景 1 · 搜索单位</option>
+          <option value="unitFocus">场景 2 · 锁定单位</option>
+          <option value="groupSearch">场景 3 · 搜索课题组</option>
+          <option value="customerSearch">场景 4 · 搜索客户/账户</option>
+          <option value="orderSearch">场景 5 · 搜索订单</option>
+        </select>
+        <button type="button" id="orderScenarioRefresh">重新生成数据</button>
+      </div>
+    </header>
+    <div class="order-scenario-note" id="orderScenarioNote"></div>
+    <div class="order-columns" id="orderColumns"></div>
+  </section>
+  <section class="analysis-board" id="analysisBoard" aria-label="分析运营">
+    分析运营界面建设中...
+  </section>
+  <aside class="right-rail">
+    <div class="right-card">预留：高层指标</div>
+    <div class="right-card">预留：流程入口</div>
+    <div class="right-card">预留：消息提醒</div>
+  </aside>
+</main>
+<div id="productScrim" class="panel-scrim"></div>
+<div id="productPanel" class="product-panel hidden" role="dialog" aria-labelledby="productPanelTitle" aria-modal="true">
+  <div class="side">
+    <h3>产品管理</h3>
+    <div class="tab-list">
+      <button class="tab-btn active" data-product-tab="list">产品清单</button>
+      <button class="tab-btn" data-product-tab="create">新增产品</button>
+      <button class="tab-btn" data-product-tab="components">控件库</button>
+      <button class="tab-btn" data-product-tab="workflow">实验流程</button>
+    </div>
+  </div>
+  <div class="body">
+    <header>
+      <h2 id="productPanelTitle">产品清单</h2>
+      <div class="actions">
+        <button id="productCloseBtn">关闭</button>
+        <button class="primary">保存草稿</button>
+      </div>
+    </header>
+    <div class="product-sections">
+      <section class="product-card" data-product-content="list">
+        <h4>产品清单</h4>
+        <p>集中展示所有上机相关产品，可快速查看价格、适用流程与状态。</p>
+        <table>
+          <thead>
+            <tr><th>产品编号</th><th>产品名称</th><th>实验流程</th><th>单价 (¥)</th><th>状态</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>SC-001</td><td>scRNA-Seq 全流程</td><td>收样 → 消化 → 流式 → 上机 → 乳化</td><td>12,800</td><td>上架</td></tr>
+            <tr><td>SC-013</td><td>核提取 + 预质检</td><td>收样 → 抽提质检</td><td>4,200</td><td>待发布</td></tr>
+            <tr><td>SC-025</td><td>自定义流程模板</td><td>收样 → 消化 → 上机</td><td>9,600</td><td>停用</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="product-card hidden" data-product-content="create">
+        <h4>新增产品</h4>
+        <p>按照合同配置产品基础信息、计费维度以及可选项。</p>
+        <div class="form-grid">
+          <div class="form-field"><label>产品名称</label><input placeholder="例如：单细胞全流程 (10X)" /></div>
+          <div class="form-field"><label>产品编号</label><input placeholder="系统自动或手动输入" /></div>
+          <div class="form-field"><label>所属分类</label><select><option>单细胞测序</option><option>空间转录组</option></select></div>
+          <div class="form-field"><label>计费方式</label><select><option>按样本</option><option>按流程阶段</option></select></div>
+          <div class="form-field"><label>标准价格 (¥)</label><input type="number" placeholder="12800" /></div>
+          <div class="form-field"><label>最小起订</label><input type="number" placeholder="1" /></div>
+          <div class="form-field full"><label>产品说明</label><textarea placeholder="适用样本、交付内容、注意事项等"></textarea></div>
+          <div class="form-field"><label>交付时间</label><input placeholder="15 个工作日" /></div>
+          <div class="form-field"><label>销售标签</label><input placeholder="如：加急、促销" /></div>
+        </div>
+      </section>
+      <section class="product-card hidden" data-product-content="components">
+        <h4>控件库</h4>
+        <p>维护产品所使用的表单控件和可选项，支持拖拽到产品配置中。</p>
+        <div class="component-grid">
+          <div class="component-card">
+            <strong>样本来源</strong>
+            <span>多选控件</span>
+            <span>PBMC / 组织 / 细胞系 …</span>
+          </div>
+          <div class="component-card">
+            <strong>质控要求</strong>
+            <span>勾选项</span>
+            <span>活率 ≥ 80%、浓度 ≥ 1e5/mL</span>
+          </div>
+          <div class="component-card">
+            <strong>交付内容</strong>
+            <span>文本模版</span>
+            <span>原始数据、分析报告、原始 QC 表</span>
+          </div>
+          <div class="component-card">
+            <strong>附加服务</strong>
+            <span>价格组合</span>
+            <span>快递加急、复测折扣</span>
+          </div>
+          <div class="component-card">
+            <strong>建库参数</strong>
+            <span>表单组</span>
+            <span>文库类型、芯片版本、上机策略</span>
+          </div>
+        </div>
+      </section>
+      <section class="product-card hidden" data-product-content="workflow">
+        <h4>实验流程定义</h4>
+        <p>通过拖拽组合形成标准实验链路，支持设置阶段耗时与责任人。</p>
+        <div class="timeline-preview">
+          <div class="timeline-stage">
+            <strong>收样</strong>
+            <div>耗时：30 min</div>
+            <div>负责人：收样组</div>
+          </div>
+          <div class="timeline-stage">
+            <strong>消化 / 制核</strong>
+            <div>耗时：90 min</div>
+            <div>负责人：预处理组</div>
+          </div>
+          <div class="timeline-stage">
+            <strong>流式分选</strong>
+            <div>耗时：120 min</div>
+            <div>负责人：流式组</div>
+          </div>
+          <div class="timeline-stage">
+            <strong>上机</strong>
+            <div>耗时：180 min</div>
+            <div>负责人：上机组</div>
+          </div>
+          <div class="timeline-stage">
+            <strong>乳化</strong>
+            <div>耗时：60 min</div>
+            <div>负责人：建库组</div>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-field"><label>流程版本</label><select><option>V1.0</option><option>V2.0</option></select></div>
+          <div class="form-field"><label>启用时间</label><input placeholder="2024-11-01" /></div>
+          <div class="form-field full"><label>流程说明</label><textarea placeholder="说明各阶段所需资源、关键控制点等"></textarea></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<div id="createMask" class="modal-mask" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="createTitle">
+    <header>
+      <h3 id="createTitle">新增派单（测试表单）</h3>
+      <button id="closeCreate" class="btn" aria-label="关闭">✕</button>
+    </header>
+    <div class="create-form" id="createForm">
+      <section class="form-section">
+        <div class="section-title">合同信息</div>
+        <div class="section-grid">
+          <label class="form-field"><span>合同编号</span><input id="fContract" placeholder="例如：LBTY-20241025-01" /></label>
+          <label class="form-field"><span>客户姓名</span><input id="fCustomer" placeholder="例如：张三" /></label>
+          <label class="form-field"><span>物种</span><input id="fSpecies" placeholder="例如：人" /></label>
+          <label class="form-field"><span>销售负责人</span><input id="fSales" placeholder="例如：李四" /></label>
+        </div>
+      </section>
+      <section class="form-section">
+        <div class="section-title">财务信息</div>
+        <div class="finance-box">合同总额、开票总额、到款总额、押金等信息后续对接 ERP 时自动同步。当前可在下方临时记录资金账户与订单消费情况。</div>
+        <label class="form-field full"><span>资金账户 / 订单消费情况</span><textarea id="fFinanceInfo" placeholder="示例：预收账 5,000 元；尾款待收 2,000 元"></textarea></label>
+      </section>
+      <section class="form-section stage-section">
+        <div class="section-title">实验信息</div>
+        <div class="stage-config-wrap">
+          <label class="form-field"><span>链路模板</span>
+            <select id="fTemplate"></select>
+          </label>
+          <div class="stage-config" id="stageConfig"></div>
+          <div class="stage-readonly" id="stageReadonly"></div>
+        </div>
+        <div class="section-subtitle">链路实验信息</div>
+        <div id="experimentFields" class="experiment-fields"></div>
+        <label class="create-options">
+          <input id="fSnapEnabled" type="checkbox" checked />
+          <span>靠近时自动吸附（保持链路）</span>
+        </label>
+      </section>
+      <section class="form-section">
+        <div class="section-title">排期与联系人</div>
+        <div class="section-grid">
+          <label class="form-field"><span>实验地点</span><input id="fLab" placeholder="例如：上海上机室" /></label>
+          <label class="form-field"><span>预约实验日期</span><input id="fDate" type="date" /></label>
+          <label class="form-field"><span>预约实验时间</span><input id="fTime" type="time" value="10:00" /></label>
+          <label class="form-field"><span>紧急联系人</span><input id="fEmergencyName" placeholder="例如：王助理" /></label>
+          <label class="form-field"><span>紧急联系人电话</span><input id="fEmergencyPhone" placeholder="例如：13800001234" /></label>
+        </div>
+      </section>
+      <section class="form-section">
+        <div class="section-title">本次产品及样本列表</div>
+        <div class="sample-placeholder">后续接入 ERP 产品与样本明细，这里先占位展示。</div>
+      </section>
+    </div>
+    <footer>
+      <button id="submitCreate" class="btn primary">保存并生成派单</button>
+      <button id="cancelCreate" class="btn">取消</button>
+    </footer>
+  </div>
+</div>
+<div class="toast hidden" id="toast"></div>
+<script>
+// ===== Utilities & Date Helpers =====
+  const SLOT_MINS = 15;
+  const PX_PER_MIN = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-min')) || 0.35;
+  const LANE_LABEL_WIDTH = 180;
+  const DAY_START = 0;     // 00:00
+  const DAY_END = 24*60;   // 24:00
+  const SHIFTS = { day:[9*60,18*60], late:[13*60,21*60] };
+  const SAFE_GAP_MIN = 5;
+  function receiveDurationMins(samples){ return 30; }
+  function digestDurationMins(samples){ return 60; }
+  function flowDurationMins(samples){ return samples >= 4 ? 120 : 90; }
+  function sequencingDurationMins(samples){ return samples >= 4 ? 180 : 150; }
+  function emulsionDurationMins(samples){ return 60; }
+const DEFAULT_STAGE_ORDER = ['receive','digest','flow','sequencing','emulsion'];
+const STAGE_LIBRARY = {
+  receive: { id:'receive', label:'收样', duration: receiveDurationMins },
+  digest: { id:'digest', label:'消化', duration: digestDurationMins },
+  flow: { id:'flow', label:'流式', duration: flowDurationMins },
+  sequencing: { id:'sequencing', label:'上机', duration: sequencingDurationMins },
+  emulsion: { id:'emulsion', label:'乳化', duration: emulsionDurationMins }
+};
+
+
+const STAGE_TEMPLATES = [
+  {
+    id:'singlecell-full',
+    name:'单细胞实验链路',
+    product:'单细胞实验',
+    stages:['receive','digest','flow','sequencing','emulsion'],
+    optional:['flow'],
+    overrides:{},
+    infoFields:[
+      { id:'samples', role:'samples', label:'本次样本数', type:'number', min:1, step:1, default:4 },
+      { id:'cellType', role:'cellType', label:'细胞类型', type:'text', placeholder:'例如：PBMC' },
+      { id:'captureTarget', role:'cellTarget', label:'期望细胞捕获数', type:'number', placeholder:'8000' },
+      { id:'sampleNote', label:'样本信息备注', type:'textarea', placeholder:'材料来源、处理方式、质控要求等补充信息' }
+    ]
+  },
+  {
+    id:'singlecell-qc',
+    name:'单细胞（核）抽提质检链路',
+    product:'单细胞核质检',
+    stages:['receive','digest'],
+    optional:[],
+    overrides:{ digest:'抽提质检' },
+    infoFields:[
+      { id:'samples', role:'samples', label:'本次样本数', type:'number', min:1, step:1, default:2 },
+      { id:'sampleNote', label:'样本信息备注', type:'textarea', placeholder:'收样、抽提要求或质控提醒' },
+      { id:'qcItems', label:'质检项目', type:'text', placeholder:'例如：浓度、活率' }
+    ]
+  },
+  {
+    id:'singlecell-nucleus',
+    name:'单细胞核实验链路',
+    product:'单细胞核实验',
+    stages:['receive','digest','sequencing','emulsion'],
+    optional:[],
+    overrides:{ digest:'制核' },
+    infoFields:[
+      { id:'samples', role:'samples', label:'本次样本数', type:'number', min:1, step:1, default:3 },
+      { id:'cellType', role:'cellType', label:'组织/样本类型', type:'text', placeholder:'例如：脑组织' },
+      { id:'captureTarget', role:'cellTarget', label:'期望核捕获数', type:'number', placeholder:'6000' },
+      { id:'sampleNote', label:'样本信息备注', type:'textarea', placeholder:'前处理、保存条件等' }
+    ]
+  }
+];
+
+function stageLabel(id){ return STAGE_LIBRARY[id]?.label || id; }
+function templateById(id){ return STAGE_TEMPLATES.find(t=>t.id===id); }
+function templateProductName(id){ return templateById(id)?.product || templateById(id)?.name || '实验链路'; }
+function defaultExperimentValues(templateId, overrides={}){
+  const tpl = templateById(templateId);
+  const result = {};
+  if(!tpl || !Array.isArray(tpl.infoFields)) return result;
+  tpl.infoFields.forEach(field=>{
+    let value = overrides[field.id];
+    if(value == null && field.role === 'samples' && overrides.samples != null){
+      value = overrides.samples;
+    }
+    if(value == null){
+      value = field.default != null ? field.default : '';
+    }
+    result[field.id] = value;
+  });
+  return result;
+}
+
+const stageState = { templateId: STAGE_TEMPLATES[0].id, order: [], enabled: new Set(), base: new Set(), overrides: {} };
+let experimentFieldsEl = null;
+
+function applyTemplateSelection(templateId, opts={}){
+  const tpl = templateById(templateId) || STAGE_TEMPLATES[0];
+  const stageOrder = Array.isArray(opts.stageOrder) && opts.stageOrder.length ? [...opts.stageOrder] : [...tpl.stages];
+  stageState.templateId = tpl.id;
+  stageState.order = stageOrder;
+  stageState.base = new Set(stageOrder);
+  if(opts.enabledStages){
+    stageState.enabled = new Set(opts.enabledStages);
+  }else{
+    stageState.enabled = new Set(stageOrder);
+  }
+  stageState.overrides = { ...tpl.overrides, ...(opts.stageOverrides || {}) };
+  renderStageConfig();
+  if(!opts.skipExperimentRender){
+    const expValues = opts.experimentValues || defaultExperimentValues(tpl.id, opts.experimentOverrides || {});
+    renderExperimentFields(tpl.id, expValues);
+  }
+}
+
+function stageDisplayLabel(stageId){
+  return stageState.overrides[stageId] || stageLabel(stageId);
+}
+
+function toggleStage(stageId){
+  const isBase = stageState.base.has(stageId);
+  const isEnabled = stageState.enabled.has(stageId);
+  if(isEnabled){
+    stageState.enabled.delete(stageId);
+    if(!isBase){
+      stageState.order = stageState.order.filter(id=>id!==stageId);
+    }
+  }else{
+    if(!stageState.order.includes(stageId)){ stageState.order.push(stageId); }
+    stageState.enabled.add(stageId);
+  }
+  renderStageConfig();
+}
+
+function renderStageConfig(){
+  const container = document.getElementById('stageConfig'); if(!container) return;
+  container.innerHTML = '';
+  const selected = document.createElement('div'); selected.className='stage-row';
+  stageState.order.forEach(stageId=>{
+    const btn = document.createElement('button');
+    btn.type='button';
+    btn.className='stage-toggle';
+    btn.dataset.stage = stageId;
+    const enabled = stageState.enabled.has(stageId);
+    if(enabled) btn.classList.add('active');
+    if(!stageState.base.has(stageId)) btn.classList.add('optional');
+    btn.dataset.enabled = enabled ? 'true':'false';
+    btn.innerHTML = `<span>${stageDisplayLabel(stageId)}</span>`;
+    btn.addEventListener('click', ()=> toggleStage(stageId));
+    selected.appendChild(btn);
+  });
+  const legend = document.createElement('div'); legend.className='stage-legend'; legend.textContent = '选择本次派单包含的环节，点击即可启用 / 禁用';
+  container.appendChild(legend);
+  container.appendChild(selected);
+  const extras = DEFAULT_STAGE_ORDER.filter(id=> !stageState.order.includes(id));
+  if(extras.length){
+    const extraLegend = document.createElement('div'); extraLegend.className='stage-legend'; extraLegend.textContent='可追加的环节';
+    container.appendChild(extraLegend);
+    const extraRow = document.createElement('div'); extraRow.className='stage-row';
+    extras.forEach(stageId=>{
+      const btn = document.createElement('button');
+      btn.type='button';
+      btn.className='stage-toggle optional';
+      btn.dataset.stage = stageId;
+      btn.dataset.enabled = 'false';
+      btn.innerHTML = `<span>${stageDisplayLabel(stageId)}</span>`;
+      btn.addEventListener('click', ()=>{ stageState.order.push(stageId); stageState.enabled.add(stageId); renderStageConfig(); });
+      extraRow.appendChild(btn);
+    });
+    container.appendChild(extraRow);
+  }
+}
+
+function renderExperimentFields(templateId, values={}){
+  if(!experimentFieldsEl) return;
+  const tpl = templateById(templateId);
+  experimentFieldsEl.innerHTML = '';
+  if(!tpl || !Array.isArray(tpl.infoFields) || tpl.infoFields.length === 0){
+    const placeholder = document.createElement('div');
+    placeholder.className = 'empty';
+    placeholder.textContent = '此链路暂无需补充的实验信息';
+    experimentFieldsEl.appendChild(placeholder);
+    return;
+  }
+  tpl.infoFields.forEach(field=>{
+    const wrapper = document.createElement('label');
+    wrapper.className = `form-field${field.full ? ' full' : ''}`;
+    wrapper.dataset.fieldId = field.id;
+    const label = document.createElement('span');
+    label.textContent = field.label;
+    wrapper.appendChild(label);
+    let control;
+    const fieldValue = values[field.id] != null ? values[field.id] : (field.default != null ? field.default : '');
+    if(field.type === 'textarea'){
+      control = document.createElement('textarea');
+      control.value = fieldValue ?? '';
+    }else if(field.type === 'number'){
+      control = document.createElement('input');
+      control.type = 'number';
+      if(field.min != null) control.min = field.min;
+      if(field.max != null) control.max = field.max;
+      if(field.step != null) control.step = field.step;
+      control.value = fieldValue !== '' && fieldValue != null ? fieldValue : (field.default != null ? field.default : '');
+    }else if(field.type === 'select' && Array.isArray(field.options)){
+      control = document.createElement('select');
+      control.innerHTML = field.options.map(opt=>{
+        if(typeof opt === 'string') return `<option value="${opt}">${opt}</option>`;
+        return `<option value="${opt.value}">${opt.label}</option>`;
+      }).join('');
+      control.value = fieldValue;
+    }else{
+      control = document.createElement('input');
+      control.type = 'text';
+      control.value = fieldValue ?? '';
+    }
+    control.id = `field-${field.id}`;
+    control.dataset.field = field.id;
+    if(field.placeholder) control.placeholder = field.placeholder;
+    wrapper.appendChild(control);
+    experimentFieldsEl.appendChild(wrapper);
+  });
+}
+
+function collectExperimentValues(templateId=stageState.templateId){
+  if(!experimentFieldsEl) return {};
+  const tpl = templateById(templateId);
+  const result = {};
+  if(!tpl || !Array.isArray(tpl.infoFields)) return result;
+  tpl.infoFields.forEach(field=>{
+    const input = experimentFieldsEl.querySelector(`[data-field="${field.id}"]`);
+    if(!input) return;
+    let value = input.value;
+    if(field.type === 'number'){
+      const num = value === '' ? null : Number(value);
+      value = Number.isFinite(num) ? num : '';
+    }else if(field.type === 'textarea' || field.type === 'text'){
+      value = value.trim();
+    }
+    result[field.id] = value;
+  });
+  return result;
+}
+function setExperimentFieldValue(fieldId, value){
+  if(!experimentFieldsEl) return;
+  const input = experimentFieldsEl.querySelector(`[data-field="${fieldId}"]`);
+  if(input){
+    input.value = value ?? '';
+  }
+}
+
+function stageDuration(id, samples){ const fn = STAGE_LIBRARY[id]?.duration; if(typeof fn === 'function'){ return Math.max(15, Math.round(fn(samples)/15)*15); } return 0; }
+
+const SNAP_THRESHOLD = SAFE_GAP_MIN; // 吸附阈值：小于等于5分钟吸附
+
+function fmtDate(d){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+function nowDate(){ return new Date(); }
+function getDateParts(date=nowDate()){ return { y:date.getFullYear(), m:date.getMonth()+1, d:date.getDate(), hh:date.getHours(), mm:date.getMinutes(), ss:date.getSeconds() }; }
+function midnightLocal(date=nowDate()){ const d=new Date(date); d.setHours(0,0,0,0); return d; }
+
+// ====== 全局时间轴：默认 ±7 天（至少 15 天） ======
+let BASE_DATE = null; // 轴起点（左端）当天 00:00
+function getDaySet(before=7, after=7){
+  const baseMid = midnightLocal();
+  const start = new Date(baseMid); start.setDate(baseMid.getDate() - before);
+  BASE_DATE = new Date(start);
+  const total = before + after + 1; // 含今天
+  const arr = [];
+  for(let i=0;i<total;i++){
+    const d = new Date(start); d.setDate(start.getDate()+i);
+    arr.push({ title: (i===before ? '今天' : ''), date: fmtDate(d) });
+  }
+  return arr;
+}
+let DAY_SET = getDaySet(7,7);
+function dayCount(){ return DAY_SET.length; }
+function dayWidthPx(){
+  const px = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-min')) || PX_PER_MIN;
+  return (DAY_END - DAY_START) * px;
+}
+function totalWidthPx(){ return dayWidthPx()*dayCount(); }
+// 每天分钟跨度（用于绝对时间换算）
+const DAY_SPAN = DAY_END - DAY_START;
+// 当前像素/分钟系数
+function pxPerMin(){
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-min')) || PX_PER_MIN;
+}
+// 绝对分钟 → 左偏移像素
+function absLeftPx(absMin){ return absMin * pxPerMin(); }
+// 距离轴起点（BASE_DATE）的绝对分钟
+function minutesSinceBase(dt){ return Math.round((dt.getTime() - BASE_DATE.getTime())/60000); }
+// 根据 YYYY-MM-DD 求 DAY_SET 中索引（不在范围内则夹逼）
+function dayIndexFromDate(dateStr){
+  if(!dateStr) return 0;
+  const d = new Date(dateStr + 'T00:00:00');
+  if(Number.isNaN(d.getTime())) return 0;
+  const mins = minutesSinceBase(d);
+  const idx = Math.floor(mins / DAY_SPAN);
+  return Math.max(0, Math.min(dayCount()-1, idx));
+}
+
+// --- Viewport helpers ---
+function setViewportDays(days){
+  const board = document.getElementById('board');
+  if(!board || days<=0) return;
+  const mins = Math.max(1, days * (DAY_END - DAY_START));
+  const boardWidth = Math.max(1, board.clientWidth);
+  const trackWidth = Math.max(240, boardWidth - LANE_LABEL_WIDTH);
+  const ppm = trackWidth / mins; // 每分钟应占像素（仅针对泳道区域）
+  const root = document.documentElement;
+  const next = clamp(ppm, 0.1, 3.0); // 合理范围
+  root.style.setProperty('--px-per-min', next);
+  buildTicks(); buildGrid(); renderBlocks();
+}
+function debounce(fn, wait){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), wait); } }
+
+// --- Self Check & Auto Fix ---
+function buildDaySet(before=7, after=7){
+  DAY_SET = getDaySet(before, after);
+  buildTicks(); buildGrid(); renderBlocks(); placeNowLine();
+}
+function selfCheck({autofix=true}={}){
+  const issues = [];
+  // 1) DAY_SET 大小
+  if(dayCount() < 15){ issues.push('时间轴天数不足（需要 ±7 天）'); }
+  // 2) 视窗应为 1 天宽
+  const board = document.getElementById('board');
+  const ppm = pxPerMin();
+  const trackWidth = Math.max(1, (board?.clientWidth || 0) - LANE_LABEL_WIDTH);
+  const visibleMins = trackWidth / ppm;
+  const target = 1 * DAY_SPAN;
+  if(Math.abs(visibleMins - target) > 0.2 * DAY_SPAN){ issues.push('首屏视窗不是 1 天'); }
+  // 3) 当前时间应在视窗内并大致居中（±20% 误差）
+  const nowAbs = minutesSinceBase(nowDate());
+  const leftMin = (board?.scrollLeft || 0) / ppm;
+  const rightMin = leftMin + visibleMins;
+  if(!(nowAbs >= leftMin && nowAbs <= rightMin)){
+    issues.push('当前时间不在可视范围');
+  }else{
+    const centerMin = (leftMin + rightMin)/2;
+    const bias = Math.abs(nowAbs - centerMin) / visibleMins; // 0.0 完全居中
+    if(bias > 0.2) issues.push('当前时间未居中');
+  }
+  if(issues.length){
+    if(autofix){
+      if(dayCount() < 15){ buildDaySet(7,7); }
+      setViewportDays(1); centerOnNow(); buildTicks(); buildGrid(); renderBlocks(); placeNowLine();
+      toast('已自动修复：' + issues.join('；'));
+    }else{
+      toast('自检发现：' + issues.join('；'));
+    }
+  }else{
+    toast('自检通过');
+  }
+}
+
+// 当前时间线工具
+
+function ensureNowLine(){
+  const board = document.getElementById('board');
+  const grid = document.getElementById('grid');
+  if(!board || !grid) return null;
+  let ln = document.getElementById('nowLine');
+  if(!ln){
+    ln = document.createElement('div');
+    ln.id='nowLine';
+    ln.className='now-line';
+    grid.appendChild(ln);
+  }
+  let bd = document.getElementById('nowBadge');
+  if(!bd){
+    bd = document.createElement('div');
+    bd.id='nowBadge';
+    bd.className='now-badge';
+    bd.textContent='现在';
+    grid.appendChild(bd);
+  }
+  return {ln, bd, board, grid};
+}
+function placeNowLine(){
+  const pair = ensureNowLine(); if(!pair) return;
+  const { ln, bd, board, grid } = pair;
+  const now = nowDate();
+  const minsAbs = minutesSinceBase(now);
+  const x = absLeftPx(minsAbs) + LANE_LABEL_WIDTH;
+  ln.style.left = x + 'px';
+  bd.style.left = x + 'px';
+  const panelVisible = document.body.classList.contains('panel-open') && productPanel && !productPanel.classList.contains('hidden');
+  if(panelVisible){
+    const boardRect = board.getBoundingClientRect();
+    const panelRect = productPanel.getBoundingClientRect();
+    const offset = Math.max(32, Math.round(panelRect.bottom - boardRect.top));
+    const clampedOffset = Math.min(offset, board.clientHeight);
+    ln.style.top = clampedOffset + 'px';
+    ln.style.height = Math.max(0, board.clientHeight - clampedOffset) + 'px';
+    ln.style.bottom = 'auto';
+    bd.style.top = clampedOffset + 'px';
+  }else{
+    ln.style.top = '0';
+    ln.style.height = '';
+    ln.style.bottom = '0';
+    bd.style.top = '-6px';
+  }
+  const {m, d, hh, mm} = getDateParts(now);
+  bd.textContent = `北京时间 ${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')} ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+function ensureCenterLine(){
+  const board = document.getElementById('board');
+  if(!board) return null;
+  let line = document.getElementById('centerLine');
+  if(!line){
+    line = document.createElement('div');
+    line.id='centerLine';
+    line.className='center-line';
+    board.appendChild(line);
+  }
+  return line;
+}
+function updateCenterLine(){
+  const board = document.getElementById('board');
+  const line = ensureCenterLine();
+  if(!board || !line) return;
+  const center = (board.scrollLeft || 0) + board.clientWidth / 2;
+  line.style.left = center + 'px';
+}
+
+function adjustCenterLineForPanel(){
+  const line = ensureCenterLine();
+  const board = document.getElementById('board');
+  if(!line || !board){ return; }
+  const isPanelOpen = document.body.classList.contains('panel-open') && productPanel && !productPanel.classList.contains('hidden');
+  if(!isPanelOpen){
+    line.style.top = '32px';
+    line.style.bottom = '';
+    line.style.height = '';
+    return;
+  }
+  const boardRect = board.getBoundingClientRect();
+  const panelRect = productPanel.getBoundingClientRect();
+  const offset = Math.max(32, Math.round(panelRect.bottom - boardRect.top));
+  const maxOffset = Math.max(offset, 32);
+  const clampedOffset = Math.min(maxOffset, board.clientHeight);
+  line.style.top = clampedOffset + 'px';
+  const tail = Math.max(0, Math.round(board.clientHeight - clampedOffset));
+  line.style.height = tail + 'px';
+  line.style.bottom = 'auto';
+  line.style.bottom = 'auto';
+}
+function viewportCenterAbs(){
+  const board = document.getElementById('board');
+  if(!board) return 0;
+  const centerPx = (board.scrollLeft || 0) + board.clientWidth / 2;
+  const trackPx = Math.max(0, centerPx - LANE_LABEL_WIDTH);
+  return trackPx / pxPerMin();
+}
+function refreshPendingPlacement(){
+  const board = document.getElementById('board');
+  if(!board) return;
+  const centerAbs = viewportCenterAbs();
+  const centerPx = (board.scrollLeft || 0) + board.clientWidth / 2;
+  const ppm = pxPerMin();
+  const gapPx = Math.max(8, 15 * ppm);
+  const cards = Array.from(document.querySelectorAll('.group-card.pending-card'));
+  const leftCards = cards
+    .filter(el=> (Number(el.dataset.startAbs) || 0) <= centerAbs)
+    .sort((a,b)=> (centerAbs - Number(a.dataset.startAbs || 0)) - (centerAbs - Number(b.dataset.startAbs || 0)) || (Number(b.dataset.startAbs||0) - Number(a.dataset.startAbs||0)));
+  const rightCards = cards
+    .filter(el=> (Number(el.dataset.startAbs) || 0) > centerAbs)
+    .sort((a,b)=> (Number(a.dataset.startAbs||0) - centerAbs) - (Number(b.dataset.startAbs||0) - centerAbs) || (Number(a.dataset.startAbs||0) - Number(b.dataset.startAbs||0)));
+  let cursorLeft = centerPx - gapPx;
+  let hiddenLeft = 0;
+  leftCards.forEach(el=>{
+    const width = parseFloat(el.dataset.pendingWidth) || el.offsetWidth || 160;
+    const target = cursorLeft - width;
+    if(target < (board.scrollLeft || 0)){ hiddenLeft += 1; }
+    el.style.left = `${target}px`;
+    cursorLeft = target - gapPx;
+    el.dataset.side = 'left';
+    el.classList.add('pending-left');
+    el.classList.remove('pending-right');
+  });
+  let cursorRight = centerPx + gapPx;
+  let hiddenRight = 0;
+  rightCards.forEach(el=>{
+    const width = parseFloat(el.dataset.pendingWidth) || el.offsetWidth || 160;
+    if(cursorRight + width > (board.scrollLeft || 0) + board.clientWidth){ hiddenRight += 1; }
+    el.style.left = `${cursorRight}px`;
+    cursorRight += width + gapPx;
+    el.dataset.side = 'right';
+    el.classList.add('pending-right');
+    el.classList.remove('pending-left');
+  });
+  updatePendingCounters(hiddenLeft, hiddenRight);
+}
+function absMinutesFromPointer(clientX){
+  const board = document.getElementById('board');
+  if(!board) return null;
+  const boardRect = board.getBoundingClientRect();
+  if(clientX < boardRect.left || clientX > boardRect.right) return null;
+  const relX = clientX - boardRect.left;
+  const timelineX = (board.scrollLeft || 0) + relX - LANE_LABEL_WIDTH;
+  const totalPx = totalWidthPx();
+  const clampedX = Math.max(0, Math.min(totalPx, timelineX));
+  if(clampedX < 0) return null;
+  const abs = clampedX / pxPerMin();
+  return Math.max(0, Math.min(dayCount()*DAY_SPAN, abs));
+}
+function ensurePlanPreview(){
+  const el = document.getElementById('planPreview');
+  if(el) return el;
+  const node = document.createElement('div');
+  node.id = 'planPreview';
+  node.className = 'plan-preview';
+  document.body.appendChild(node);
+  return node;
+}
+function showPlanPreview(absStart, duration, clientX, clientY){
+  const el = ensurePlanPreview();
+  const snapped = Math.round(absStart / SLOT_MINS) * SLOT_MINS;
+  const endAbs = snapped + duration;
+  const startDt = minutesToDate(snapped);
+  const endDt = minutesToDate(endAbs);
+  if(!startDt || !endDt){ hidePlanPreview(); return; }
+  el.textContent = `计划 ${formatDateLabel(startDt)} → ${formatDateLabel(endDt)}`;
+  el.style.display = 'block';
+  const padding = 16;
+  const maxLeft = window.innerWidth - el.offsetWidth - padding;
+  const maxTop = window.innerHeight - el.offsetHeight - padding;
+  const left = Math.min(Math.max(clientX + padding, padding), maxLeft);
+  const top = Math.min(Math.max(clientY + padding, padding), maxTop);
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+function hidePlanPreview(){
+  const el = document.getElementById('planPreview');
+  if(el){ el.style.display = 'none'; }
+}
+function applyUrgencyStyles(){
+  const nowAbs = minutesSinceBase(nowDate());
+  document.querySelectorAll('.group-card.pending-card').forEach(el=>{
+    el.classList.remove('urgency-due', 'urgency-soon', 'urgency-imminent');
+    const startAbs = Number(el.dataset.startAbs) || 0;
+    const diff = startAbs - nowAbs;
+    if(diff <= 0){
+      el.classList.add('urgency-due');
+    }else if(diff <= 4 * 60){
+      el.classList.add('urgency-imminent');
+    }else if(diff <= 24 * 60){
+      el.classList.add('urgency-soon');
+    }
+  });
+}
+function ensurePendingCounter(id, className){
+  const board = document.getElementById('board');
+  if(!board) return null;
+  let el = document.getElementById(id);
+  if(!el){
+    el = document.createElement('div');
+    el.id = id;
+    el.className = `pending-counter ${className}`;
+    board.appendChild(el);
+  }
+  return el;
+}
+function updatePendingCounters(leftHidden, rightHidden){
+  const board = document.getElementById('board');
+  if(!board) return;
+  const leftEl = ensurePendingCounter('pendingLeftCounter', 'pn-left');
+  const rightEl = ensurePendingCounter('pendingRightCounter', 'pn-right');
+  const scrollLeft = board.scrollLeft || 0;
+  const viewportRight = scrollLeft + board.clientWidth;
+  if(leftEl){
+    leftEl.style.left = `${scrollLeft + 200}px`;
+    leftEl.style.display = leftHidden > 0 ? 'block' : 'none';
+    leftEl.textContent = leftHidden > 0 ? `左侧还有 ${leftHidden} 张` : '';
+  }
+  if(rightEl){
+    rightEl.style.left = `${viewportRight - 200}px`;
+    rightEl.style.display = rightHidden > 0 ? 'block' : 'none';
+    rightEl.textContent = rightHidden > 0 ? `右侧还有 ${rightHidden} 张` : '';
+  }
+}
+function centerOnNow(){
+  const board = document.getElementById('board'); if(!board) return;
+  const absMin = clamp(minutesSinceBase(nowDate()), 0, dayCount()*DAY_SPAN);
+  const x = absLeftPx(absMin);
+  const halfView = Math.max(0, (board.clientWidth - LANE_LABEL_WIDTH)/2);
+  const target = Math.max(0, x - halfView);
+  board.scrollLeft = target;
+  placeNowLine();
+  requestAnimationFrame(placeNowLine);
+  requestAnimationFrame(updateCenterLine);
+}
+const CARD_HEIGHT = 192;
+const ROW_GAP = 6;
+const ROW_TOP_OFFSET = 8;
+const roleSel = document.getElementById('roleSel');
+
+function scrollToToday(){
+  // 首屏：以 1 天为视窗，并居中到当前时间
+  setViewportDays(1);
+  centerOnNow();
+}
+
+
+
+function x2m(x){
+  const px = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-min')) || PX_PER_MIN);
+  return Math.round((x / px + DAY_START) / SLOT_MINS) * SLOT_MINS;
+}
+function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toast._tmr);
+  toast._tmr = setTimeout(()=>t.classList.add('hidden'), 1800);
+}
+function uid(prefix){ return prefix + Math.random().toString(36).slice(2,8); }
+function userName(id){ const u = users.find(x=>x.id===id); return u ? u.name : id; }
+function primaryAssignee(block){
+  if(!block) return null;
+  return (block.assignees && block.assignees.length ? block.assignees[0] : 'UNASSIGNED');
+}
+const STAGE_TYPES = [
+  { type:'receive', label:'收样' },
+  { type:'digest', label:'消化' },
+  { type:'flow', label:'流式' },
+  { type:'sequencing', label:'上机' },
+  { type:'emulsion', label:'乳化' }
+];
+const CHAIN_COLORS = ['#6366f1','#f97316','#22c55e','#06b6d4','#facc15','#ec4899','#14b8a6','#f472b6','#a855f7','#0ea5e9'];
+// ===== Card Helpers =====
+function reassignBlock(block, newUserId){
+  if(newUserId==='UNASSIGNED'){
+    block.assignees = [];
+  }else{
+    block.assignees = [newUserId];
+  }
+}
+function collectLockedGroup(chain, centerIndex, opts={}){
+  const { limitPrev=false, limitNext=false } = opts;
+  if(!chain || centerIndex < 0) return [];
+  let start = centerIndex;
+  while(start>0 && chain.blocks[start-1]?.linkedNext){ start--; }
+  let end = centerIndex;
+  while(end < chain.blocks.length-1 && chain.blocks[end]?.linkedNext){ end++; }
+  if(limitPrev){ return start>0 ? [start-1] : []; }
+  if(limitNext){ return end < chain.blocks.length-1 ? [end+1] : []; }
+  const arr = [];
+  for(let i=start;i<=end;i++){ arr.push(i); }
+  return arr;
+}
+function chainColor(chainId){
+  if(!chainId) return CHAIN_COLORS[0];
+  let hash = 0;
+  for(let i=0;i<chainId.length;i++){
+    hash = ((hash << 5) - hash) + chainId.charCodeAt(i);
+    hash |= 0;
+  }
+  const idx = Math.abs(hash) % CHAIN_COLORS.length;
+  return CHAIN_COLORS[idx];
+}
+function reassignLockedGroup(chain, centerIndex, newUserId){
+  const group = collectLockedGroup(chain, centerIndex);
+  if(group.length<=0) return;
+  group.forEach(idx=>{
+    const targetBlock = chain.blocks[idx];
+    if(targetBlock){
+      reassignBlock(targetBlock, newUserId);
+      targetBlock.forceExpanded = false;
+    }
+  });
+}
+// ===== In-memory Data Store =====
+const staffList = Array.from({ length: 20 }, (_, index) => {
+  const idx = index + 1;
+  const id = `U${String(idx).padStart(2, '0')}`;
+  const name = `实验员${String(idx).padStart(2, '0')}`;
+  const group = idx <= 10 ? '组A' : '组B';
+  const lab = idx <= 10 ? '上海' : '北京';
+  const shifts = idx % 3 === 0 ? ['day', 'late'] : (idx % 2 === 0 ? ['late'] : ['day']);
+  return { id, name, group, lab, shifts };
+});
+const users = [
+  { id: 'UNASSIGNED', name: '待分配', group: '—', lab: '—', shifts: [] },
+  ...staffList
+];
+
+const state = {
+  role: 'lead',
+  view: 'all',
+  anon: false,
+  chains: []
+};
+
+const blockDomRegistry = new Map();
+const dragHelper = {
+  hintClasses: ['hint-snap-prev','hint-detach-prev','hint-snap-next','hint-detach-next','hint-clone-merge','hint-clone-free'],
+  currentTargets: [],
+  snapZones: new Map(),
+  clearTargetMarks(){
+    this.currentTargets.forEach(item=>{
+      if(item?.el){
+        item.el.classList.remove(item.cls);
+      }
+    });
+    this.currentTargets = [];
+  },
+  addTargetMark(el, cls){
+    if(!el) return;
+    el.classList.add(cls);
+    this.currentTargets.push({ el, cls });
+  },
+  clearSnapZones(){
+    if(!this.snapZones) return;
+    this.snapZones.forEach(zone=>{
+      if(zone){
+        zone.style.display = 'none';
+      }
+    });
+  },
+  showSnapZone(key, track, fromPx, toPx, type, baseEl){
+    if(!track) return;
+    if(!Number.isFinite(fromPx) || !Number.isFinite(toPx)) return;
+    let zone = this.snapZones.get(key);
+    if(!zone || !zone.isConnected){
+      zone = document.createElement('div');
+      zone.className = 'snap-zone';
+      this.snapZones.set(key, zone);
+    }
+    const gap = Math.abs(toPx - fromPx);
+    const padding = 16;
+    const width = Math.max(18, gap + padding);
+    const pxLeft = Math.max(0, Math.min(fromPx, toPx) - padding/2);
+    zone.className = `snap-zone snap-zone-${type}`;
+    zone.style.left = `${pxLeft}px`;
+    zone.style.width = `${width}px`;
+    const trackRect = track.getBoundingClientRect();
+    let top = 0;
+    let height = trackRect.height;
+    if(baseEl){
+      const baseRect = baseEl.getBoundingClientRect();
+      top = Math.max(0, baseRect.top - trackRect.top - 6);
+      height = Math.min(trackRect.height - top, Math.max(baseRect.height + 12, 48));
+    }
+    height = Math.max(32, height);
+    zone.style.top = `${top}px`;
+    zone.style.height = `${height}px`;
+    if(zone.parentElement !== track){
+      zone.remove();
+      track.appendChild(zone);
+    }
+    zone.style.display = 'block';
+  },
+  captureGroupBase(chain, indexes){
+    const map = new Map();
+    if(!chain || !Array.isArray(indexes)) return map;
+    const baseAbs = chainBaseAbs(chain);
+    indexes.forEach(idx=>{
+      const blk = chain.blocks[idx];
+      if(!blk) return;
+      map.set(idx, baseAbs + blockStartAbs(blk));
+    });
+    return map;
+  },
+  highlightLane(lanes, blockTop, blockHeight){
+    let best=null; let bestScore=-Infinity;
+    const blockBottom = blockTop + blockHeight;
+    const blockCenter = blockTop + blockHeight/2;
+    lanes.forEach(item=>{
+      const top=item.rect.top; const bottom=item.rect.bottom;
+      const overlap=Math.min(bottom, blockBottom) - Math.max(top, blockTop);
+      const score = overlap>0 ? overlap : -Math.abs(blockCenter - (top+bottom)/2);
+      if(score > bestScore){ best=item; bestScore=score; }
+    });
+    lanes.forEach(item=> item.el.classList.toggle('drop-target', best && item.id===best.id));
+    return best;
+  },
+  clearLaneHighlights(){
+    document.querySelectorAll('.lane.drop-target').forEach(el=> el.classList.remove('drop-target'));
+  },
+  updateHints({ chain, indexes=[], block, el }){
+    if(!el){ return; }
+    this.clearTargetMarks();
+    this.clearSnapZones();
+    this.hintClasses.forEach(cls=> el.classList.remove(cls));
+      if(block?.isClone && chain){
+      const canMerge = shouldAbsorbClone(block, chain);
+      el.classList.add(canMerge ? 'hint-clone-merge' : 'hint-clone-free');
+      if(canMerge && block.sourceId){
+        const sourceEl = blockDomRegistry.get(block.sourceId);
+        if(sourceEl){
+          this.addTargetMark(sourceEl, 'snap-target-clone');
+          const parentTrack = sourceEl.parentElement;
+          const centerPx = sourceEl.offsetLeft + sourceEl.offsetWidth / 2;
+          const radius = Math.max(36, sourceEl.offsetWidth * 0.25);
+          this.showSnapZone('clone', parentTrack, centerPx - radius, centerPx + radius, 'clone', sourceEl);
+        }
+      }
+    }
+    if(!chain || !indexes.length) return;
+    const sorted = [...indexes].sort((a,b)=>a-b);
+    const firstIdx = sorted[0];
+    const lastIdx = sorted[sorted.length-1];
+    const firstBlock = chain.blocks[firstIdx];
+    const lastBlock = chain.blocks[lastIdx];
+    if(!firstBlock || !lastBlock) return;
+    const prev = chain.blocks[firstIdx - 1];
+    if(prev){
+      const prevGap = blockStartAbs(firstBlock) - blockEndAbs(prev);
+      if(prevGap >= 0 && prevGap <= SAFE_GAP_MIN){
+        el.classList.add('hint-snap-prev');
+        const prevEl = blockDomRegistry.get(prev.id);
+        if(prevEl){
+          this.addTargetMark(prevEl, 'snap-target-next');
+          const track = el.parentElement;
+          if(track){
+            const prevEndPx = absLeftPx(blockEndAbs(prev));
+            const currStartPx = absLeftPx(blockStartAbs(firstBlock));
+            this.showSnapZone('prev', track, prevEndPx, currStartPx, 'merge', el);
+          }
+        }
+      }else if(prev.linkedNext || prevGap < 0){
+        el.classList.add('hint-detach-prev');
+        const prevEl = blockDomRegistry.get(prev.id);
+        if(prevEl){
+          this.addTargetMark(prevEl, 'snap-target-detach-next');
+          const track = el.parentElement;
+          if(track){
+            const prevEndPx = absLeftPx(blockEndAbs(prev));
+            const currStartPx = absLeftPx(blockStartAbs(firstBlock));
+            this.showSnapZone('prev', track, prevEndPx, currStartPx, 'detach', el);
+          }
+        }
+      }
+    }
+    const next = chain.blocks[lastIdx + 1];
+    if(next){
+      const nextGap = blockStartAbs(next) - blockEndAbs(lastBlock);
+      if(nextGap >= 0 && nextGap <= SAFE_GAP_MIN){
+        el.classList.add('hint-snap-next');
+        const nextEl = blockDomRegistry.get(next.id);
+        if(nextEl){
+          this.addTargetMark(nextEl, 'snap-target-prev');
+          const track = el.parentElement;
+          if(track){
+            const nextStartPx = absLeftPx(blockStartAbs(next));
+            const currEndPx = absLeftPx(blockEndAbs(lastBlock));
+            this.showSnapZone('next', track, currEndPx, nextStartPx, 'merge', el);
+          }
+        }
+      }else if(lastBlock.linkedNext || nextGap < 0){
+        el.classList.add('hint-detach-next');
+        const nextEl = blockDomRegistry.get(next.id);
+        if(nextEl){
+          this.addTargetMark(nextEl, 'snap-target-detach-prev');
+          const track = el.parentElement;
+          if(track){
+            const nextStartPx = absLeftPx(blockStartAbs(next));
+            const currEndPx = absLeftPx(blockEndAbs(lastBlock));
+            this.showSnapZone('next', track, currEndPx, nextStartPx, 'detach', el);
+          }
+        }
+      }
+    }
+  }
+};
+// 迁移：为所有块增加绝对起点(startAbs)与时长(dur) —— 相对 chain.meta.date
+function attachCardDrag(el, block, chain, userId){
+  const trackEl = el.parentElement;
+  const handle = el.querySelector('.handle');
+  let pressX=0, pressY=0, startLeft=0, startTop=0, startWidth=0, startDur=0;
+  let dragging=false, resizing=false;
+  let laneRects=[];
+  let groupIndexes=[];
+  let baseAbs=null;
+  let baseDur=new Map();
+  let hoveredLane=null;
+  let cloneTargetEl=null;
+  let groupDuration=0;
+  let grabOffsetX=0;
+  const resetVisual=()=>{
+    el.style.transform='';
+    el.classList.remove('dragging');
+    el.style.cursor='grab';
+    dragHelper.hintClasses.forEach(cls=> el.classList.remove(cls));
+    dragHelper.clearTargetMarks();
+    dragHelper.clearSnapZones();
+    dragHelper.clearLaneHighlights();
+    if(cloneTargetEl){
+      cloneTargetEl.classList.remove('hint-clone-target');
+      cloneTargetEl=null;
+    }
+    hidePlanPreview();
+  };
+  el.addEventListener('pointerdown',(e)=>{
+    if(e.button!==0) return;
+    if(e.target.closest('.flow-chip') || e.target.closest('.copy-chip') || e.target.closest('.card-settings')) return;
+    e.preventDefault();
+    resizing = (e.target===handle);
+    dragging = !resizing;
+    pressX = e.clientX; pressY = e.clientY;
+    startLeft = parseFloat(el.style.left) || 0;
+    startTop = parseFloat(el.style.top) || 0;
+    startWidth = parseFloat(el.style.width) || el.getBoundingClientRect().width || 0;
+    laneRects = Array.from(document.querySelectorAll('.lane')).map(l=>({ id:l.dataset.user, rect:l.getBoundingClientRect(), el:l }));
+    el.setPointerCapture(e.pointerId);
+    el.style.cursor='grabbing';
+    el.classList.add('dragging');
+    const idx = chain.blocks.findIndex(x=>x.id===block.id);
+    groupIndexes = idx>=0 ? collectLockedGroup(chain, idx) : [] ;
+    baseAbs = dragHelper.captureGroupBase(chain, groupIndexes);
+    baseDur = new Map();
+    startDur = 0;
+    groupDuration = 0;
+    groupIndexes.forEach(i=>{
+      const blk = chain.blocks[i];
+      if(!blk) return;
+      const dur = blk.dur || (blk.end - blk.start) || SLOT_MINS;
+      baseDur.set(i, dur);
+      startDur += dur;
+      groupDuration += dur;
+    });
+    if(!resizing){
+      const blk = chain.blocks[idx];
+      const dur = blk ? (blk.dur || (blk.end - blk.start) || SLOT_MINS) : 0;
+      startDur = dur;
+      baseDur.set(idx, dur);
+    }
+    if(block?.isClone && block.sourceId){
+      cloneTargetEl = blockDomRegistry.get(block.sourceId) || null;
+    }
+    const trackRect = trackEl.getBoundingClientRect();
+    grabOffsetX = clamp(e.clientX - trackRect.left - startLeft, 0, startWidth);
+    if(el.dataset.pending === 'true'){
+      el.dataset.pendingRestoreWidth = el.dataset.pendingRestoreWidth || el.style.width;
+      const actualWidthPx = Math.max(72, (groupDuration || startDur || SLOT_MINS) * pxPerMin());
+      el.style.width = actualWidthPx + 'px';
+      startWidth = actualWidthPx;
+    }
+  });
+  el.addEventListener('pointermove',(e)=>{
+    if(!dragging && !resizing) return;
+    const dx = e.clientX - pressX;
+    const dy = e.clientY - pressY;
+    const totalMins = dayCount()*DAY_SPAN;
+    const chainBase = chainBaseAbs(chain);
+    if(dragging){
+      const totalWidth = totalWidthPx();
+      const trackRect = trackEl.getBoundingClientRect();
+      const currentWidth = parseFloat(el.style.width) || startWidth || 0;
+      const maxLeft = Math.max(0, totalWidth - currentWidth);
+      const pointerLeft = clamp(e.clientX - trackRect.left - grabOffsetX, 0, maxLeft);
+      const desiredLeft = pointerLeft;
+      el.style.left = desiredLeft + 'px';
+      el.style.transform = `translateY(${dy}px)`;
+      if(baseAbs && baseAbs.size){
+        const firstIdx = groupIndexes[0];
+        const fallbackFirst = chainBase + (firstIdx != null ? blockStartAbs(chain.blocks[firstIdx]) : 0);
+        const baseFirst = baseAbs.get(firstIdx) ?? fallbackFirst;
+        const newStartAbs = desiredLeft / pxPerMin();
+        const deltaAbs = newStartAbs - baseFirst;
+        groupIndexes.forEach(idx=>{
+          const blk = chain.blocks[idx];
+          if(!blk) return;
+          const seed = baseAbs.get(idx) ?? (chainBase + blockStartAbs(blk));
+          const absolute = clamp(seed + deltaAbs, 0, totalMins);
+          blk.startAbs = Math.max(0, absolute - chainBase);
+          const otherEl = blockDomRegistry.get(blk.id);
+          if(otherEl && otherEl !== el){
+            otherEl.classList.add('dragging');
+            otherEl.style.left = absLeftPx(absolute) + 'px';
+            otherEl.style.transform = `translateY(${dy}px)`;
+          }
+        });
+      }else{
+        const absolute = clamp(desiredLeft / pxPerMin(), 0, totalMins);
+        block.startAbs = Math.max(0, absolute - chainBase);
+      }
+      dragHelper.updateHints({ chain, indexes: groupIndexes, block, el });
+      if(block?.isClone && cloneTargetEl){ cloneTargetEl.classList.toggle('hint-clone-target', shouldAbsorbClone(block, chain)); }
+      const laneRect = trackEl.getBoundingClientRect();
+      const blockTop = laneRect.top + startTop + dy;
+      hoveredLane = dragHelper.highlightLane(laneRects, blockTop, el.getBoundingClientRect().height || CARD_HEIGHT);
+      const previewAbs = absMinutesFromPointer(e.clientX);
+      if(previewAbs != null){
+        const duration = groupDuration || startDur || SLOT_MINS;
+        showPlanPreview(previewAbs, duration, e.clientX, e.clientY);
+      }else{
+        hidePlanPreview();
+      }
+    }
+    if(resizing){
+      hidePlanPreview();
+      const ppm = pxPerMin();
+      const sorted = [...groupIndexes].sort((a,b)=>a-b);
+      const groupCount = sorted.length || 1;
+      const deltaMins = Math.round((dx / ppm) / SLOT_MINS) * SLOT_MINS;
+      const minTotal = groupCount * SLOT_MINS;
+      const maxTotal = totalMins;
+      let targetTotal = clamp(startDur + deltaMins, minTotal, maxTotal);
+      const maxSlots = Math.max(groupCount, Math.floor(maxTotal / SLOT_MINS));
+      const currentSlots = clamp(Math.round(startDur / SLOT_MINS), groupCount, maxSlots);
+      let targetSlots = clamp(Math.round(targetTotal / SLOT_MINS), groupCount, maxSlots);
+      if(targetSlots === currentSlots){
+        el.style.transform = `translateY(${dy}px)`;
+        return;
+      }
+      targetTotal = targetSlots * SLOT_MINS;
+      if(groupCount <= 1){
+        const newDur = Math.max(SLOT_MINS, targetTotal);
+        block.dur = Math.min(newDur, totalMins);
+        el.style.width = (block.dur * ppm) + 'px';
+      }else{
+        const baseStart = baseAbs.get(sorted[0]) ?? (chainBase + blockStartAbs(chain.blocks[sorted[0]]));
+        const segments = sorted.map(idx=> baseDur.get(idx) || (chain.blocks[idx]?.dur || SLOT_MINS));
+        const sum = segments.reduce((acc,v)=>acc+v,0);
+        const slotInfo = sorted.map((idx, order)=>{
+          const raw = sum > 0 ? (segments[order] * targetSlots) / sum : (targetSlots / groupCount);
+          const floorRaw = Math.floor(raw);
+          const frac = raw - floorRaw;
+          const slots = Math.max(1, floorRaw);
+          return { order, slots, frac };
+        });
+        let allocatedSlots = slotInfo.reduce((acc,item)=> acc + item.slots, 0);
+        let diff = targetSlots - allocatedSlots;
+        if(diff > 0){
+          const order = [...slotInfo].sort((a,b)=> b.frac - a.frac || a.order - b.order);
+          let ptr = 0;
+          while(diff > 0 && order.length){
+            const entry = order[ptr % order.length];
+            slotInfo[entry.order].slots += 1;
+            diff--;
+            ptr++;
+          }
+        }else if(diff < 0){
+          const order = [...slotInfo].filter(item=> item.slots > 1).sort((a,b)=> a.frac - b.frac || b.order - a.order);
+          let ptr = 0;
+          while(diff < 0 && order.length){
+            const entry = order[ptr % order.length];
+            if(slotInfo[entry.order].slots > 1){
+              slotInfo[entry.order].slots -= 1;
+              diff++;
+            }
+            ptr++;
+            if(ptr > order.length * 3) break;
+          }
+        }
+        if(diff !== 0){
+          const fallback = slotInfo.map((item, idx)=>({ order: idx, frac: item.frac }));
+          let ptr = 0;
+          while(diff > 0 && fallback.length){
+            const entry = fallback[ptr % fallback.length];
+            slotInfo[entry.order].slots += 1;
+            diff--;
+            ptr++;
+          }
+          ptr = 0;
+          while(diff < 0 && fallback.length){
+            const entry = fallback[ptr % fallback.length];
+            if(slotInfo[entry.order].slots > 1){
+              slotInfo[entry.order].slots -= 1;
+              diff++;
+            }
+            ptr++;
+            if(ptr > fallback.length * 3) break;
+          }
+        }
+        let cursor = baseStart;
+        let groupStartAbs = null;
+        let groupEndAbs = null;
+        slotInfo.forEach((info)=>{
+          const blockIdx = sorted[info.order];
+          const blk = chain.blocks[blockIdx];
+          if(!blk) return;
+          const minutes = info.slots * SLOT_MINS;
+          const startAbs = clamp(cursor, 0, totalMins);
+          blk.startAbs = Math.max(0, startAbs - chainBase);
+          blk.dur = minutes;
+          cursor += minutes;
+          const endAbs = startAbs + minutes;
+          groupStartAbs = groupStartAbs == null ? startAbs : Math.min(groupStartAbs, startAbs);
+          groupEndAbs = groupEndAbs == null ? endAbs : Math.max(groupEndAbs, endAbs);
+          const node = blockDomRegistry.get(blk.id);
+          if(node && node !== el){
+            node.style.left = absLeftPx(startAbs) + 'px';
+            node.style.width = Math.max(72, (blk.dur * ppm)) + 'px';
+            node.style.transform = `translateY(${dy}px)`;
+          }
+        });
+        if(groupStartAbs != null && groupEndAbs != null){
+          el.style.left = absLeftPx(groupStartAbs) + 'px';
+          el.style.width = Math.max(72, (groupEndAbs - groupStartAbs) * ppm) + 'px';
+        }
+      }
+      el.style.transform = `translateY(${dy}px)`;
+    }
+  });
+  const finalizeDrag = (pointerId)=>{
+    el.releasePointerCapture(pointerId);
+    const wasDragging = dragging;
+    const wasResizing = resizing;
+    dragging = false;
+    resizing = false;
+    hidePlanPreview();
+    if(wasDragging || wasResizing){
+      if(wasDragging && block?.isClone && shouldAbsorbClone(block, chain)){
+        removeClone(chain, block.id);
+        toast('已合并复制阶段');
+      }
+      if(hoveredLane && hoveredLane.id && hoveredLane.id !== userId){
+        groupIndexes.forEach(idx=> reassignBlock(chain.blocks[idx], hoveredLane.id));
+        userId = hoveredLane.id;
+        toast(`已改派至 ${userName(userId)}`);
+      }
+      groupIndexes.forEach(idx=>{
+        const blk = chain.blocks[idx];
+        if(blk) applyAutoSnap(blk, chain);
+      });
+    }
+    syncBlockTimes(chain);
+    resetVisual();
+    groupIndexes.forEach(idx=>{
+      const blk = chain.blocks[idx];
+      const node = blk ? blockDomRegistry.get(blk.id) : null;
+      if(node && node !== el){
+        node.classList.remove('dragging');
+        node.style.transform='';
+      }
+    });
+    groupIndexes = [];
+    baseAbs = null;
+    baseDur = new Map();
+    hoveredLane = null;
+    cloneTargetEl = null;
+    renderBlocks();
+  };
+  el.addEventListener('pointerup',(e)=> finalizeDrag(e.pointerId));
+  el.addEventListener('pointercancel',(e)=> finalizeDrag(e.pointerId));
+}
+
+state.chains.forEach(ch=>{
+  ch.blocks.forEach(b=>{
+    if(typeof b.startAbs !== 'number'){
+      const baseIdx = dayIndexFromDate(ch.meta?.date);
+      const relIdx = (b.day || 1) - 1; // 相对 meta.date 的天偏移
+      const dayIdx = Math.max(0, Math.min(dayCount()-1, baseIdx + relIdx));
+      b.startAbs = dayIdx * DAY_SPAN + (b.start - DAY_START);
+    }
+    if(typeof b.dur !== 'number'){
+      b.dur = (b.end - b.start);
+    }
+  });
+  syncBlockTimes(ch);
+});
+
+// ===== Timeline Construction =====
+function buildTicks(){
+  const tb = document.getElementById('timebar');
+  tb.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  let offset = 0;
+  DAY_SET.forEach((ds, dIdx)=>{
+    const title = document.createElement('div');
+    title.className = 'day-label';
+    title.style.left = offset + 'px';
+    title.style.width = dayWidthPx() + 'px';
+    title.textContent = `${ds.title} ${ds.date}`;
+    frag.appendChild(title);
+    for(let m=DAY_START; m<=DAY_END; m+=60){
+      const x = offset + (m - DAY_START) * (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-min')) || PX_PER_MIN);
+      const t = document.createElement('div');
+      t.className = 'tick';
+      t.style.left = x + 'px';
+      t.textContent = String(Math.floor(m/60)).padStart(2,'0') + ':00';
+      frag.appendChild(t);
+    }
+    const sep = document.createElement('div');
+    sep.className = 'day-sep';
+    sep.style.left = (offset + dayWidthPx()) + 'px';
+    frag.appendChild(sep);
+    offset += dayWidthPx();
+  });
+  const total = totalWidthPx();
+  tb.style.width = total + 'px';
+  tb.style.minWidth = total + 'px';
+  tb.appendChild(frag);
+  placeNowLine();
+}
+
+// ===== Lane Grid Construction =====
+function buildGrid(){
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  grid.style.width = totalWidthPx() + 'px';
+  // background bands
+  const bands = document.createElement('div');
+  bands.className = 'day-bands';
+  bands.style.width = totalWidthPx() + 'px';
+  for(let i=0;i<dayCount();i++){
+    const b = document.createElement('div');
+    b.className = 'day-band';
+    b.style.left = (i*dayWidthPx()) + 'px';
+    b.style.width = dayWidthPx() + 'px';
+    bands.appendChild(b);
+  }
+  grid.appendChild(bands);
+  // capacity bar above bands
+  const cap = document.createElement('div'); cap.className = 'capacity-bar'; grid.appendChild(cap);
+  const buildLane = (user)=>{
+    const lane = document.createElement('div');
+    lane.className = 'lane';
+    if(user.id === 'UNASSIGNED'){
+      lane.classList.add('lane-unassigned');
+    }
+    lane.dataset.user = user.id;
+    const label = document.createElement('div'); label.className='label';
+    const name = document.createElement('div'); name.className='name'; name.textContent = user.name;
+    const shift = document.createElement('div'); shift.className='shift';
+    shift.textContent = user.shifts.includes('day') && user.shifts.includes('late') ? '09–18 & 13–21' : (user.shifts.includes('day') ? '09–18' : '13–21');
+    label.appendChild(name); label.appendChild(shift); lane.appendChild(label);
+    const track = document.createElement('div');
+    track.className='track';
+    track.style.width = totalWidthPx() + 'px';
+    lane.appendChild(track);
+    const registerLaneDrop = (target)=>{
+      target.addEventListener('dragover', (ev)=>{
+        ev.preventDefault();
+        if(ev.dataTransfer) ev.dataTransfer.dropEffect='move';
+        lane.classList.add('drop-target');
+      });
+      target.addEventListener('dragleave', ()=> lane.classList.remove('drop-target'));
+      target.addEventListener('drop', (ev)=>{
+        ev.preventDefault();
+        lane.classList.remove('drop-target');
+        hidePlanPreview();
+        const chainId = ev.dataTransfer.getData('text/plain');
+        const chain = state.chains.find(c=>c.chainId===chainId);
+        if(!chain) return;
+        const firstBlock = chain.blocks.find(b=>!b.isClone) || chain.blocks[0];
+        const isPendingLane = lane.dataset.user === 'UNASSIGNED';
+        const requiresMerge = isPendingLane && hasDetachedCoreStages(chain);
+        if(isPendingLane && requiresMerge){
+          const proceed = window.confirm('该派单在实验员泳道中已拆分，返回待分配将自动合并并恢复原链路。是否继续？');
+          if(!proceed){
+            renderBlocks();
+            renderPools();
+            applyUrgencyStyles();
+            return;
+          }
+        }
+        const baseAbsBefore = chainBaseAbs(chain);
+        const originalRel = firstBlock ? (firstBlock.startAbs || 0) : 0;
+        const originalAbs = baseAbsBefore + originalRel;
+        const rawAbs = absMinutesFromPointer(ev.clientX);
+        const fallbackAbs = Number.isFinite(originalAbs) ? originalAbs : 0;
+        const snappedAbs = rawAbs == null ? fallbackAbs : Math.round(rawAbs / SLOT_MINS) * SLOT_MINS;
+        const clampedAbs = Math.max(0, Math.min(dayCount()*DAY_SPAN - SLOT_MINS, snappedAbs));
+        let finalAbs = clampedAbs;
+        if(isPendingLane){
+          const originalLabel = formatDateLabel(minutesToDate(originalAbs));
+          const proposedLabel = formatDateLabel(minutesToDate(clampedAbs));
+          const useDragged = window.confirm(`原计划时间：${originalLabel}\n拖拽位置：${proposedLabel}\n是否使用拖拽位置作为新的计划时间？`);
+          if(useDragged){
+            finalAbs = clampedAbs;
+          }else{
+            const suggestionDt = minutesToDate(clampedAbs) || minutesToDate(originalAbs);
+            const suggestion = suggestionDt ? `${fmtDate(suggestionDt)} ${String(suggestionDt.getHours()).padStart(2,'0')}:${String(suggestionDt.getMinutes()).padStart(2,'0')}` : '';
+            const input = window.prompt('请输入新的计划时间（格式：YYYY-MM-DD HH:mm）', suggestion);
+            if(input){
+              const parsed = parseInputToAbs(input);
+              if(parsed != null){
+                finalAbs = Math.max(0, Math.min(dayCount()*DAY_SPAN - SLOT_MINS, Math.round(parsed / SLOT_MINS) * SLOT_MINS));
+              }else{
+                toast('时间格式不正确，已保留原计划');
+                finalAbs = originalAbs;
+              }
+            }else{
+              finalAbs = originalAbs;
+            }
+          }
+        }
+        const delta = finalAbs - originalAbs;
+        const shiftResult = shiftChainBlocks(chain, delta);
+        const refreshedFirst = chain.blocks.find(b=>!b.isClone) || chain.blocks[0];
+        const headRel = refreshedFirst ? (refreshedFirst.startAbs || 0) : 0;
+        const inferredBaseAbs = Number.isFinite(finalAbs) && Number.isFinite(headRel) ? Math.max(0, finalAbs - headRel) : (shiftResult && typeof shiftResult.baseAbs === 'number' ? shiftResult.baseAbs : baseAbsBefore);
+        const baseMoment = minutesToDate(inferredBaseAbs);
+        if(baseMoment){
+          chain.meta.date = fmtDate(baseMoment);
+        }else if(shiftResult && typeof shiftResult.baseAbs === 'number'){
+          const fallbackMoment = minutesToDate(shiftResult.baseAbs);
+          if(fallbackMoment){ chain.meta.date = fmtDate(fallbackMoment); }
+        }
+        if(requiresMerge){
+          relockChainStages(chain);
+        }
+        syncBlockTimes(chain);
+        const exp = chain.blocks.find(b=>b.type==='sequencing') || chain.blocks[chain.blocks.length-1];
+        if(exp){
+          if(lane.dataset.user === 'UNASSIGNED'){
+            exp.assignees = [];
+          }else{
+            exp.assignees = [lane.dataset.user];
+          }
+          const expIndex = chain.blocks.findIndex(b=>b.id===exp.id);
+          if(expIndex>=0){
+            reassignLockedGroup(chain, expIndex, lane.dataset.user);
+          }
+        }
+        if(isPendingLane){
+          chain.status = 'pendingReserve';
+          chain.blocks.forEach(b=> b.assignees = []);
+          state.openStatuses.add('unassigned');
+        }else{
+          chain.status = 'pendingAssign';
+          state.openStatuses.add('assigning');
+        }
+        renderBlocks();
+        renderPools();
+        applyUrgencyStyles();
+        toast(`已把 ${chain.meta?.orderNo||chainId} 拖到 ${userName(lane.dataset.user)} 的泳道`);
+      });
+    };
+    registerLaneDrop(track);
+    registerLaneDrop(lane);
+    grid.appendChild(lane);
+  };
+
+  users.forEach(u=> buildLane(u));
+  placeNowLine();
+  centerOnNow();
+}
+
+// ===== Block Rendering =====
+function computeLaneLayout(){
+  const laneItems = new Map();
+  state.chains.forEach(chain=>{
+    chain.blocks.forEach(block=>{
+      block._laneRow = {}; block._prevStart = block.start;
+      const absStart = (typeof block.startAbs === 'number') ? block.startAbs : (((block.day||1)-1)*(DAY_SPAN) + (block.start - DAY_START));
+      block._absStart = absStart;
+      block._absEnd = absStart + (typeof block.dur === 'number' ? block.dur : (block.end - block.start));
+      block.assignees.forEach(uid=>{ if(!laneItems.has(uid)) laneItems.set(uid, []); laneItems.get(uid).push({block, chain}); });
+    });
+  });
+  const laneRowCount = new Map();
+  laneItems.forEach((items, uid)=>{
+    items.sort((a,b)=> a.block._absStart - b.block._absStart);
+    const rowEnds = [];
+    items.forEach(({block})=>{
+      let assigned = false;
+      for(let r=0;r<rowEnds.length;r++){
+        if(rowEnds[r] <= block._absStart){ rowEnds[r] = block._absEnd; block._laneRow[uid] = r; assigned = true; break; }
+      }
+      if(!assigned){ rowEnds.push(block._absEnd); block._laneRow[uid] = rowEnds.length - 1; }
+    });
+    laneRowCount.set(uid, Math.max(rowEnds.length,1));
+  });
+  return laneRowCount;
+}
+function blockStartAbs(block){
+  if(!block) return 0;
+  if(typeof block.startAbs === 'number') return block.startAbs;
+  const dayIdx = (block.day || 1) - 1;
+  const within = (block.start || DAY_START) - DAY_START;
+  return Math.max(0, dayIdx * DAY_SPAN + within);
+}
+function blockDuration(block){
+  if(!block) return SLOT_MINS;
+  if(typeof block.dur === 'number') return block.dur;
+  const start = block.start || DAY_START;
+  const end = block.end || start + SLOT_MINS;
+  return Math.max(SLOT_MINS, end - start);
+}
+function blockEndAbs(block){
+  const start = blockStartAbs(block);
+  return start + blockDuration(block);
+}
+function buildChainGroups(chain){
+  const groups = [];
+  const clones = [];
+  if(!chain || !Array.isArray(chain.blocks)) return { groups, clones };
+  let current = null;
+  chain.blocks.forEach((block, idx)=>{
+    if(!block || block.isHidden) return;
+    if(block.isClone){
+      clones.push({ block, idx });
+      return;
+    }
+    const prev = chain.blocks[idx-1];
+    const startNew = (!prev || prev.isClone || !prev.linkedNext);
+    if(startNew){
+      current = {
+        chain,
+        startIndex: idx,
+        blocks: [],
+        blockIds: [],
+        startAbs: null,
+        endAbs: null,
+        index: groups.length
+      };
+      groups.push(current);
+    }
+    if(!current) return;
+    current.blocks.push(block);
+    current.blockIds.push(block.id);
+    const start = blockStartAbs(block);
+    const end = blockEndAbs(block);
+    if(current.startAbs == null || start < current.startAbs){ current.startAbs = start; }
+    if(current.endAbs == null || end > current.endAbs){ current.endAbs = end; }
+  });
+  return { groups, clones };
+}
+function formatDateTime(dateStr, startMin, dayIdx=1){
+  const time = timeStr(startMin);
+  if(!dateStr){
+    return `第${dayIdx}天 ${time}`;
+  }
+  const base = new Date(`${dateStr}T00:00:00`);
+  if(!Number.isNaN(base.getTime())){
+    base.setDate(base.getDate() + (dayIdx-1));
+    const y = base.getFullYear();
+    const m = String(base.getMonth()+1).padStart(2,'0');
+    const d = String(base.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d} ${time}`;
+  }
+  return `${dateStr} ${time}`;
+}
+function renderBlocks(){
+  document.querySelectorAll('.block').forEach(el=>el.remove());
+  document.querySelectorAll('.chain-links').forEach(el=>el.remove());
+  blockDomRegistry.clear();
+  const laneRows = computeLaneLayout();
+  document.querySelectorAll('.lane').forEach(lane=>{
+    const uid = lane.dataset.user;
+    const rows = laneRows.get(uid) || 1;
+    const track = lane.querySelector('.track');
+    const label = lane.querySelector('.label');
+    const trackHeight = ROW_TOP_OFFSET + rows * CARD_HEIGHT + (rows - 1) * ROW_GAP + ROW_TOP_OFFSET;
+    track.style.height = trackHeight + 'px';
+    label.style.height = trackHeight + 'px';
+  });
+  const chainAnchors = new Map();
+  const cloneAnchors = [];
+  state.chains.forEach(chain=>{
+    const { groups, clones } = buildChainGroups(chain);
+    groups.forEach(group=>{
+      const headBlock = group.blocks[0];
+      if(!headBlock) return;
+      const primaryUser = determineGroupUser(group);
+      const isPending = primaryUser === 'UNASSIGNED';
+      const lane = document.querySelector(`.lane[data-user="${primaryUser}"] .track`);
+      if(!lane) return;
+      const rowIndex = (headBlock._laneRow && typeof headBlock._laneRow[primaryUser] === 'number') ? headBlock._laneRow[primaryUser] : 0;
+      const top = ROW_TOP_OFFSET + rowIndex * (CARD_HEIGHT + ROW_GAP);
+      const relStart = group.startAbs ?? blockStartAbs(headBlock);
+      const relEnd = group.endAbs ?? blockEndAbs(group.blocks[group.blocks.length-1]);
+      const durationAbs = Math.max(0, relEnd - relStart);
+      const planStartAbs = plannedStartAbs(chain, group);
+      const planEndAbs = planStartAbs + durationAbs;
+      const left = absLeftPx(planStartAbs);
+      const baseWidth = Math.max(72, durationAbs * pxPerMin());
+      const width = isPending ? Math.max(72, 180 * pxPerMin()) : baseWidth;
+      const statusKey = (chain.status || '').toString().replace(/[^a-zA-Z0-9_-]/g,'').toLowerCase();
+      const el = document.createElement('div');
+      const pendingClass = isPending ? ' pending-card' : '';
+      el.className = `block group-card${group.blocks.length === 1 ? ' single-stage' : ''}${pendingClass}${statusKey ? ` status-bg-${statusKey}` : ''}`;
+      el.dataset.block = headBlock.id;
+      el.dataset.chain = chain.chainId;
+      el.dataset.group = `${chain.chainId}-${group.index}`;
+      el.dataset.user = primaryUser;
+      el.dataset.startAbs = planStartAbs;
+      el.dataset.endAbs = planEndAbs;
+      el.dataset.pendingWidth = width;
+      if(isPending){ el.dataset.pending = 'true'; } else { delete el.dataset.pending; }
+      el.style.left = left + 'px';
+      el.style.width = width + 'px';
+      el.style.top = top + 'px';
+      el.style.height = CARD_HEIGHT + 'px';
+      el.innerHTML = buildGroupCardMarkup(chain, group, { pending: isPending, planStartAbs, planEndAbs });
+      el.title = buildGroupTitle(chain, group);
+      lane.appendChild(el);
+      attachCardDrag(el, headBlock, chain, primaryUser);
+      group.blockIds.forEach(id=> blockDomRegistry.set(id, el));
+      if(!chainAnchors.has(chain.chainId)){ chainAnchors.set(chain.chainId, []); }
+      chainAnchors.get(chain.chainId).push({ el, block: headBlock, group, chain });
+      attachGroupInteractions(el, chain, group);
+    });
+    clones.forEach(({ block: clone })=>{
+      const el = renderCloneBlock(chain, clone);
+      if(el){
+        cloneAnchors.push({ el, clone, chain });
+      }
+    });
+  });
+  renderChainLinks(chainAnchors, cloneAnchors);
+  applyRoleView();
+  checkConflicts();
+  renderPools();
+  placeNowLine();
+  updateCenterLine();
+  refreshPendingPlacement();
+  applyUrgencyStyles();
+}
+
+function determineGroupUser(group){
+  if(!group || !Array.isArray(group.blocks)) return 'UNASSIGNED';
+  for(const block of group.blocks){
+    const assignee = primaryAssignee(block);
+    if(assignee && assignee !== 'UNASSIGNED'){
+      return assignee;
+    }
+  }
+  return 'UNASSIGNED';
+}
+function absToClock(abs){
+  const minutes = Math.round(abs);
+  const within = (minutes % DAY_SPAN) + DAY_START;
+  return timeStr(within);
+}
+function formatDurationLabel(mins){
+  const total = Math.max(0, Math.round(mins));
+  if(total === 0) return '0分钟';
+  if(total % 60 === 0){
+    return `${total/60}小时`;
+  }
+  if(total > 120){
+    return `${(total/60).toFixed(1)}小时`;
+  }
+  return `${total}分钟`;
+}
+function plannedStartDate(chain, group){
+  const metaDate = chain?.meta?.date;
+  if(!metaDate) return null;
+  const base = new Date(metaDate + 'T00:00:00');
+  if(Number.isNaN(base.getTime())) return null;
+  const head = group.blocks[0];
+  const dayOffset = head?.day ? (head.day - 1) : 0;
+  base.setDate(base.getDate() + dayOffset);
+  const startMinutes = head?.start ?? DAY_START;
+  base.setMinutes(base.getMinutes() + (startMinutes - DAY_START));
+  return base;
+}
+function plannedStartAbs(chain, group){
+  const dt = plannedStartDate(chain, group);
+  if(dt && BASE_DATE){
+    return Math.round((dt.getTime() - BASE_DATE.getTime())/60000);
+  }
+  return group.startAbs ?? blockStartAbs(group.blocks[0]);
+}
+function minutesToDate(abs){
+  if(!BASE_DATE) return null;
+  const dt = new Date(BASE_DATE.getTime());
+  dt.setMinutes(dt.getMinutes() + Math.round(abs));
+  return dt;
+}
+function formatDateLabel(dt){
+  if(!dt) return '';
+  const m = String(dt.getMonth()+1).padStart(2,'0');
+  const d = String(dt.getDate()).padStart(2,'0');
+  const hh = String(dt.getHours()).padStart(2,'0');
+  const mm = String(dt.getMinutes()).padStart(2,'0');
+  return `${m}-${d} ${hh}:${mm}`;
+}
+function chainBaseAbs(chain){
+  if(!chain || !chain.meta || !chain.meta.date || !BASE_DATE) return 0;
+  const dt = new Date(chain.meta.date + 'T00:00:00');
+  if(Number.isNaN(dt.getTime())) return 0;
+  return minutesSinceBase(dt);
+}
+function shiftChainBlocks(chain, delta){
+  const baseBefore = chainBaseAbs(chain);
+  if(!chain || !Array.isArray(chain.blocks) || !BASE_DATE){
+    return { baseAbs: baseBefore };
+  }
+  if(Math.abs(delta) < 0.01){
+    return { baseAbs: baseBefore };
+  }
+  const limit = dayCount() * DAY_SPAN;
+  const absMap = new Map();
+  let minAbs = Infinity;
+  chain.blocks.forEach(blk=>{
+    if(typeof blk.startAbs === 'number'){
+      const before = baseBefore + blk.startAbs;
+      let after = before + delta;
+      if(after < 0){
+        after = 0;
+      }else if(after > limit){
+        after = limit;
+      }
+      absMap.set(blk, after);
+      if(after < minAbs) minAbs = after;
+    }
+  });
+  if(!absMap.size){
+    return { baseAbs: baseBefore };
+  }
+  let baseAfter = minAbs - (minAbs % DAY_SPAN);
+  if(baseAfter < 0){ baseAfter = 0; }
+  absMap.forEach((abs, blk)=>{
+    blk.startAbs = Math.max(0, abs - baseAfter);
+  });
+  return { baseAbs: baseAfter };
+}
+function parseInputToAbs(input){
+  if(!input || !BASE_DATE) return null;
+  let normalized = input.trim();
+  if(!normalized) return null;
+  if(/^[0-9]{2}-[0-9]{2}\s/.test(normalized)){
+    const year = BASE_DATE.getFullYear();
+    normalized = `${year}-${normalized}`;
+  }
+  if(!normalized.includes(' ')) normalized += ' 00:00';
+  const iso = normalized.replace(' ', 'T');
+  const dt = new Date(iso);
+  if(Number.isNaN(dt.getTime())) return null;
+  return Math.round((dt.getTime() - BASE_DATE.getTime()) / 60000);
+}
+function buildGroupCardMarkup(chain, group, opts={}){
+  const { pending=false, planStartAbs=null, planEndAbs=null } = opts;
+  const orderCode = chain.meta?.orderNo || chain.chainId;
+  const stageNames = group.blocks.map(block=> stageState.overrides[block.type] || block.displayLabel || stageLabel(block.type));
+  const flowRow = stageNames.map((label, idx)=>{
+    const block = group.blocks[idx];
+    return `<span class="flow-chip" data-block-id="${block.id}" data-stage="${block.type}">${label}</span>`;
+  }).join('<span class="flow-arrow">→</span>');
+  if(pending){
+    const startAbs = planStartAbs != null ? planStartAbs : plannedStartAbs(chain, group);
+    const endAbs = planEndAbs != null ? planEndAbs : startAbs + Math.max(0, (group.endAbs ?? blockEndAbs(group.blocks[group.blocks.length-1])) - (group.startAbs ?? blockStartAbs(group.blocks[0])));
+    const startDt = minutesToDate(startAbs);
+    const endDt = minutesToDate(endAbs);
+    return `
+      <div class="group-head">
+        <span class="order-code">${orderCode}</span>
+        <button type="button" class="card-settings" data-action="settings" aria-label="编辑派单">⚙</button>
+      </div>
+      <div class="flow-row flow-real pending-flow">
+        <div class="flow-track">${flowRow}</div>
+      </div>
+      <div class="pending-meta">
+        <span>计划 ${formatDateLabel(startDt)} → ${formatDateLabel(endDt)}</span>
+        <span>原时长 ${formatDurationLabel(endAbs - startAbs)}</span>
+      </div>`;
+  }
+  const copyRow = stageNames.map((label, idx)=>{
+    const block = group.blocks[idx];
+    return `<span class="copy-chip" data-block-id="${block.id}" data-stage="${block.type}">${label}</span>`;
+  }).join('<span class="flow-arrow">→</span>');
+  return `
+    <div class="group-head">
+      <span class="order-code">${orderCode}</span>
+      <button type="button" class="card-settings" data-action="settings" aria-label="编辑派单">⚙</button>
+    </div>
+    <div class="flow-row flow-real">
+      <span class="row-label">移</span>
+      <div class="flow-track">${flowRow}</div>
+    </div>
+    <div class="flow-row flow-copy">
+      <span class="row-label">复</span>
+      <div class="flow-track">${copyRow}</div>
+    </div>
+    <div class="handle"></div>`;
+}
+function buildGroupTitle(chain, group){
+  const meta = chain.meta || {};
+  const orderCode = meta.orderNo || chain.chainId;
+  const customer = meta.customer || '—';
+  const sales = meta.sales || '—';
+  const product = meta.product || '—';
+  const samples = meta.samples != null ? meta.samples : '—';
+  const startBlock = group.blocks[0];
+  const startDayIdx = Math.floor(blockStartAbs(startBlock) / DAY_SPAN) + 1;
+  const within = DAY_START + (blockStartAbs(startBlock) % DAY_SPAN);
+  const timeLabel = formatDateTime(meta?.date, within, startDayIdx);
+  return `订单: ${orderCode}
+客户: ${customer}
+销售: ${sales}
+类型: ${product}
+样品数: ${samples}
+开始: ${timeLabel}`;
+}
+function attachGroupInteractions(el, chain, group){
+  const settingsBtn = el.querySelector('.card-settings');
+  if(settingsBtn){
+    const openHandler = (ev)=>{
+      if(ev.type === 'pointerdown' && ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      openCreate(chain);
+    };
+    settingsBtn.addEventListener('pointerdown', openHandler);
+    settingsBtn.addEventListener('click', openHandler);
+    settingsBtn.addEventListener('keydown', ev=>{
+      if(ev.key === 'Enter' || ev.key === ' '){
+        ev.preventDefault();
+        ev.stopPropagation();
+        openCreate(chain);
+      }
+    });
+  }
+  const isPendingCard = el.dataset.pending === 'true';
+  el.querySelectorAll('.flow-chip[data-block-id]').forEach(chip=>{
+    chip.addEventListener('pointerdown', ev=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      if(isPendingCard){
+        toast('待分配区暂不支持拆分，请先分配实验员。');
+        return;
+      }
+      const blockId = chip.dataset.blockId;
+      if(!blockId) return;
+      const idx = chain.blocks.findIndex(b=>b.id===blockId);
+      if(idx<0) return;
+      detachStageAt(chain, idx);
+      renderBlocks();
+    });
+  });
+  el.querySelectorAll('.copy-chip[data-block-id]').forEach(chip=>{
+    chip.addEventListener('pointerdown', ev=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      const blockId = chip.dataset.blockId;
+      if(!blockId) return;
+      startCloneDrag(chain, blockId);
+    });
+  });
+}
+
+function renderCloneBlock(chain, clone){
+  if(!clone) return null;
+  const userId = (clone.assignees && clone.assignees.length ? clone.assignees[0] : 'UNASSIGNED');
+  const lane = document.querySelector(`.lane[data-user="${userId}"] .track`);
+  if(!lane) return null;
+  const baseAbs = chainBaseAbs(chain);
+  const relStart = typeof clone.startAbs === 'number' ? clone.startAbs : blockStartAbs(clone);
+  const totalLimit = dayCount() * DAY_SPAN;
+  const absStart = clamp(baseAbs + Math.max(0, relStart), 0, totalLimit);
+  const width = Math.max(30, blockDuration(clone) * pxPerMin());
+  const rowIndex = (clone._laneRow && typeof clone._laneRow[userId] === 'number') ? clone._laneRow[userId] : 0;
+  const top = ROW_TOP_OFFSET + rowIndex * (CARD_HEIGHT + ROW_GAP);
+  const el = document.createElement('div');
+  el.className = 'block group-card single-stage clone-card';
+  el.dataset.block = clone.id;
+  el.dataset.chain = chain.chainId;
+  el.dataset.clone = 'true';
+  el.dataset.source = clone.sourceId || '';
+  el.dataset.user = userId;
+  el.dataset.startAbs = absStart;
+  el.style.left = absLeftPx(absStart) + 'px';
+  el.style.width = Math.max(72, width) + 'px';
+  el.style.top = top + 'px';
+  el.style.height = CARD_HEIGHT + 'px';
+  const orderCode = chain.meta?.orderNo || chain.chainId;
+  const stageLabelText = clone.displayLabel || (stageState.overrides[clone.type] || stageLabel(clone.type));
+  const pseudoGroup = { blocks:[clone] };
+  const statusKey = (chain.status || '').toString().replace(/[^a-zA-Z0-9_-]/g,'').toLowerCase();
+  if(statusKey){ el.classList.add(`status-bg-${statusKey}`); }
+  el.innerHTML = `
+    <div class="clone-header">
+      <span class="order-code">${orderCode}</span>
+      <span class="clone-tag">复</span>
+    </div>
+    <div class="clone-stage">
+      <span class="stage-name">${stageLabelText}</span>
+    </div>
+    <div class="handle"></div>`;
+  el.title = buildGroupTitle(chain, pseudoGroup);
+  lane.appendChild(el);
+  attachCardDrag(el, clone, chain, userId);
+  blockDomRegistry.set(clone.id, el);
+  if(clone._highlight){
+    el.classList.add('clone-highlight');
+    delete clone._highlight;
+  }
+  return el;
+}
+
+// ===== Clone Helpers =====
+function detachStageAt(chain, idx){
+  if(!chain || !Array.isArray(chain.blocks)) return;
+  const curr = chain.blocks[idx];
+  if(!curr) return;
+  const prev = chain.blocks[idx-1];
+  const next = chain.blocks[idx+1];
+  if(prev && prev.linkedNext){
+    prev.linkedNext = false;
+    prev.forceExpanded = true;
+    const prevEnd = blockEndAbs(prev);
+    setBlockStartAbs(curr, chain, prevEnd + SAFE_GAP_MIN, { propagatePrev:false });
+    curr.forceExpanded = true;
+  }
+  if(next && curr.linkedNext){
+    curr.linkedNext = false;
+    curr.forceExpanded = true;
+    const currEnd = blockEndAbs(curr);
+    setBlockStartAbs(next, chain, currEnd + SAFE_GAP_MIN, { propagatePrev:false });
+    next.forceExpanded = true;
+  }
+  syncBlockTimes(chain);
+}
+function startCloneDrag(chain, blockId, opts={}){
+  if(!chain || !blockId) return null;
+  const { silent=false } = opts;
+  const sourceIdx = chain.blocks.findIndex(b=>b.id===blockId && !b.isClone);
+  if(sourceIdx < 0) return null;
+  const source = chain.blocks[sourceIdx];
+  const clone = {
+    id: uid('CL'),
+    type: source.type,
+    assignees: Array.isArray(source.assignees) ? [...source.assignees] : [],
+    startAbs: blockStartAbs(source),
+    dur: blockDuration(source),
+    isClone: true,
+    sourceId: source.id,
+    linkedNext: false,
+    forceExpanded: true,
+    displayLabel: source.displayLabel || (stageState.overrides[source.type] || stageLabel(source.type))
+  };
+  chain.blocks.push(clone);
+  if(!silent){
+    clone._highlight = true;
+  }
+  syncBlockTimes(chain);
+  if(!silent){
+    renderBlocks();
+    toast('已生成复制阶段，可拖拽分派');
+  }
+  return clone;
+}
+
+function shouldAbsorbClone(clone, chain){
+  if(!clone || !clone.isClone || !chain) return false;
+  const source = chain.blocks.find(b=>b.id===clone.sourceId && !b.isClone);
+  if(!source) return false;
+  const cloneUser = (clone.assignees && clone.assignees.length ? clone.assignees[0] : 'UNASSIGNED');
+  const sourceUser = primaryAssignee(source) || 'UNASSIGNED';
+  if(cloneUser !== sourceUser) return false;
+  const sourceStart = blockStartAbs(source);
+  const sourceDur = Math.max(SLOT_MINS, blockDuration(source));
+  const sourceCenter = sourceStart + sourceDur / 2;
+  const cloneStart = blockStartAbs(clone);
+  const cloneEnd = cloneStart + Math.max(SLOT_MINS, blockDuration(clone));
+  let distance = 0;
+  if(sourceCenter < cloneStart){
+    distance = cloneStart - sourceCenter;
+  }else if(sourceCenter > cloneEnd){
+    distance = sourceCenter - cloneEnd;
+  }else{
+    distance = 0;
+  }
+  return distance <= SAFE_GAP_MIN;
+}
+function removeClone(chain, cloneId){
+  if(!chain || !Array.isArray(chain.blocks)) return;
+  const idx = chain.blocks.findIndex(b=>b.id===cloneId && b.isClone);
+  if(idx >= 0){
+    chain.blocks.splice(idx,1);
+  }
+}
+function hasDetachedCoreStages(chain){
+  if(!chain || !Array.isArray(chain.blocks)) return false;
+  let prevCore = null;
+  for(const blk of chain.blocks){
+    if(!blk || blk.isClone) continue;
+    if(prevCore && !prevCore.linkedNext){
+      return true;
+    }
+    prevCore = blk;
+  }
+  return false;
+}
+function relockChainStages(chain){
+  if(!chain || !Array.isArray(chain.blocks)) return;
+  const coreBlocks = chain.blocks.filter(b=>b && !b.isClone);
+  if(!coreBlocks.length) return;
+  const base = chainBaseAbs(chain);
+  const totalLimit = dayCount() * DAY_SPAN;
+  // 保持首段时间不变，后续顺延
+  let cursorAbs = Math.max(0, base + (coreBlocks[0].startAbs || 0));
+  coreBlocks.forEach((blk, idx)=>{
+    if(idx === 0){
+      blk.startAbs = Math.max(0, cursorAbs - base);
+    }else{
+      const prev = coreBlocks[idx - 1];
+      const prevAbs = base + (prev.startAbs || 0);
+      const prevDur = Math.max(SLOT_MINS, blockDuration(prev));
+      cursorAbs = clamp(prevAbs + prevDur, 0, totalLimit);
+      blk.startAbs = Math.max(0, cursorAbs - base);
+    }
+    blk.linkedNext = idx < coreBlocks.length - 1;
+    blk.forceExpanded = false;
+  });
+}
+
+function renderChainLinks(anchorMap, cloneAnchors=[]) {
+  const grid = document.getElementById('grid'); if(!grid) return;
+  const hasSequential = anchorMap && anchorMap.size > 0;
+  const hasClone = Array.isArray(cloneAnchors) && cloneAnchors.length > 0;
+  if(!hasSequential && !hasClone) return;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const width = grid.scrollWidth || grid.clientWidth || 0;
+  const height = grid.scrollHeight || grid.clientHeight || 0;
+  if(width === 0 || height === 0) return;
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.classList.add('chain-links');
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.style.width = width + 'px';
+  svg.style.height = height + 'px';
+  grid.appendChild(svg);
+  const gridRect = grid.getBoundingClientRect();
+  anchorMap.forEach((items, chainId)=>{
+    if(!items || items.length < 2) return;
+    const strokeColor = chainColor(chainId);
+    const positions = items
+      .map(({el, block})=>{
+        if(!el || !block) return null;
+        const rect = el.getBoundingClientRect();
+        const xLeft = rect.left - gridRect.left;
+        const xRight = xLeft + rect.width;
+        const yMid = rect.top - gridRect.top + rect.height / 2;
+        return {
+          block,
+          xStart: xRight,
+          xEnd: xLeft,
+          xCenter: xLeft + rect.width / 2,
+          yMid
+        };
+      })
+      .filter(Boolean)
+      .sort((a,b)=> (a.block.startAbs||0) - (b.block.startAbs||0));
+    if(positions.length < 2) return;
+    for(let i=0;i<positions.length-1;i++){
+      const cur = positions[i];
+      const nxt = positions[i+1];
+      const startX = cur.xStart;
+      const startY = cur.yMid;
+      const endX = nxt.xEnd;
+      const endY = nxt.yMid;
+      const midX = startX + Math.max(24, (endX - startX)/2);
+      const path = document.createElementNS(svgNS, 'path');
+      path.classList.add('chain-path');
+      path.dataset.chain = chainId;
+      path.setAttribute('stroke', strokeColor);
+      path.setAttribute('stroke-dashoffset', (i % 2 === 0 ? 0 : 10));
+      path.setAttribute('d', `M ${startX} ${startY} L ${midX} ${startY} L ${midX} ${endY} L ${endX} ${endY}`);
+      svg.appendChild(path);
+      const dotStart = document.createElementNS(svgNS, 'circle');
+      dotStart.classList.add('chain-dot');
+      dotStart.setAttribute('cx', startX);
+      dotStart.setAttribute('cy', startY);
+      dotStart.setAttribute('r', 2.5);
+      dotStart.setAttribute('fill', strokeColor);
+      dotStart.setAttribute('data-chain', chainId);
+      svg.appendChild(dotStart);
+      const dotEnd = document.createElementNS(svgNS, 'circle');
+      dotEnd.classList.add('chain-dot');
+      dotEnd.setAttribute('cx', endX);
+      dotEnd.setAttribute('cy', endY);
+      dotEnd.setAttribute('r', 2.5);
+      dotEnd.setAttribute('fill', strokeColor);
+      dotEnd.setAttribute('data-chain', chainId);
+      svg.appendChild(dotEnd);
+    }
+  });
+  if(Array.isArray(cloneAnchors) && cloneAnchors.length){
+    cloneAnchors.forEach(({ el, clone, chain })=>{
+      if(!el || !clone || !clone.sourceId) return;
+      const sourceEl = blockDomRegistry.get(clone.sourceId);
+      if(!sourceEl) return;
+      const cloneRect = el.getBoundingClientRect();
+      const stageSelector = `.flow-row.flow-real .flow-chip[data-stage="${clone.type}"]`;
+      const stageCopySelector = `.flow-row.flow-copy .copy-chip[data-stage="${clone.type}"]`;
+      const stageChip = sourceEl.querySelector(stageSelector) || sourceEl.querySelector(stageCopySelector);
+      const targetRect = (stageChip || sourceEl).getBoundingClientRect();
+      const startX = cloneRect.left - gridRect.left + cloneRect.width / 2;
+      const startY = cloneRect.top - gridRect.top + cloneRect.height / 2;
+      const endX = targetRect.left - gridRect.left + targetRect.width / 2;
+      const endY = targetRect.top - gridRect.top + targetRect.height / 2;
+      const linkPath = document.createElementNS(svgNS, 'path');
+      linkPath.classList.add('clone-link');
+      const color = chainColor(chain?.chainId || clone.sourceId || '');
+      if(color){
+        linkPath.setAttribute('stroke', color);
+      }
+      const offsetSeed = (clone.startAbs || 0) % 30;
+      linkPath.setAttribute('stroke-dashoffset', offsetSeed);
+      if(chain?.chainId){
+        linkPath.dataset.chain = chain.chainId;
+      }
+      linkPath.setAttribute('opacity','0.75');
+      linkPath.setAttribute('d', `M ${startX} ${startY} L ${endX} ${endY}`);
+      svg.appendChild(linkPath);
+    });
+  }
+}
+function buildAnchorMapFromDOM(){
+  const sequential = new Map();
+  const cloneAnchors = [];
+  state.chains.forEach(chain=>{
+    const { groups, clones } = buildChainGroups(chain);
+    groups.forEach(group=>{
+      const headBlock = group.blocks[0];
+      if(!headBlock) return;
+      const el = blockDomRegistry.get(headBlock.id);
+      if(el){
+        if(!sequential.has(chain.chainId)){ sequential.set(chain.chainId, []); }
+        sequential.get(chain.chainId).push({ el, block: headBlock, group, chain });
+      }
+    });
+    clones.forEach(({ block: clone })=>{
+      const el = blockDomRegistry.get(clone.id);
+      if(el){
+        cloneAnchors.push({ el, clone, chain });
+      }
+    });
+  });
+  return { sequential, clones: cloneAnchors };
+}
+function refreshChainLinks(){
+  const grid = document.getElementById('grid'); if(!grid) return;
+  grid.querySelectorAll('.chain-links').forEach(el=>el.remove());
+  const { sequential, clones } = buildAnchorMapFromDOM();
+  const hasSequential = sequential.size > 0;
+  const hasClones = Array.isArray(clones) && clones.length > 0;
+  if(!hasSequential && !hasClones) return;
+  renderChainLinks(sequential, clones);
+}
+// ===== Duration & Scheduling Rules =====
+function experimentDurationMins(samples){
+  if(samples > 2) return 4*60;
+  return 3*60;
+}
+function applyDurationsBySamples(chain, opts={}){
+  if(!chain || !Array.isArray(chain.blocks)) return;
+  const s = chain?.meta?.samples ?? 0;
+  const blocks = chain.blocks;
+  if(opts.anchor === 'head'){
+    let day = opts.day || 1;
+    let cursor = clamp(opts.start ?? DAY_START, DAY_START, DAY_END-15);
+    let absCursor = (day-1)*DAY_SPAN + (cursor - DAY_START);
+    blocks.forEach(block=>{
+      const dur = stageDuration(block.type, s);
+      block.startAbs = Math.max(0, absCursor);
+      block.dur = dur;
+      absCursor += dur;
+    });
+    return;
+  }
+  blocks.forEach(block=>{
+    block.dur = stageDuration(block.type, s);
+  });
+}
+function syncBlockTimes(chain){
+  if(!chain || !Array.isArray(chain.blocks)) return;
+  chain.blocks.forEach(block=>{
+    if(typeof block.startAbs === 'number'){
+      const dayIdx = Math.floor(block.startAbs / DAY_SPAN);
+      const within = (block.startAbs % DAY_SPAN) + DAY_START;
+      block.day = dayIdx + 1;
+      block.start = within;
+      block.end = within + (block.dur || 0);
+    }
+  });
+}
+
+// ===== Side Placeholder =====
+function renderPools(){
+  const board = document.getElementById('statusBoard'); if(!board) return;
+  if(!board.querySelector('.side-placeholder')){
+    const placeholder = document.createElement('div');
+    placeholder.className = 'side-placeholder';
+    placeholder.textContent = '工具区';
+    board.appendChild(placeholder);
+  }
+}
+function labelOf(t){ return stageLabel(t); }
+function timeStr(m){ const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0'); return `${h}:${mm}`; }
+
+// ===== Block Interaction (Drag/Resize) =====
+function setBlockStartAbs(block, chain, startAbs, opts={}){
+  const { propagatePrev=true, propagateNext=true } = opts;
+  if(!block || !chain) return;
+  const idx = chain.blocks.findIndex(b=>b.id===block.id);
+  if(idx<0) return;
+  const current = block.startAbs || 0;
+  const target = Math.max(0, startAbs);
+  const delta = target - current;
+  if(Math.abs(delta) < 0.01) return;
+  block.startAbs = target;
+  // 向前联动：前序块若已锁定则跟随移动
+  if(propagatePrev){
+    for(let j=idx-1;j>=0;j--){
+      const prevBlock = chain.blocks[j];
+      if(!prevBlock.linkedNext) break;
+      const prevStart = prevBlock.startAbs || 0;
+      prevBlock.startAbs = Math.max(0, prevStart + delta);
+    }
+  }
+  if(propagateNext && block.linkedNext){
+    for(let j=idx+1;j<chain.blocks.length;j++){
+      const prev = chain.blocks[j-1];
+      if(prev && prev.linkedNext){
+        chain.blocks[j].startAbs = Math.max(0, (chain.blocks[j].startAbs || 0) + delta);
+      }else{
+        break;
+      }
+    }
+  }
+}
+function applyAutoSnap(block, chain){
+  if(!block || block.isClone || !chain) return;
+  const idx = chain.blocks.findIndex(b=>b.id===block.id);
+  if(idx<0) return;
+  const prevCandidate = chain.blocks[idx-1];
+  const nextCandidate = chain.blocks[idx+1];
+  const prev = prevCandidate && !prevCandidate.isClone ? prevCandidate : null;
+  const next = nextCandidate && !nextCandidate.isClone ? nextCandidate : null;
+  const start = block.startAbs || 0;
+  const duration = block.dur || (block.end - block.start) || SLOT_MINS;
+  let end = start + duration;
+  if(prev){
+    const prevEnd = (prev.startAbs || 0) + (prev.dur || (prev.end - prev.start) || SLOT_MINS);
+    const diffPrev = start - prevEnd;
+    if(prev.linkedNext && Math.abs(diffPrev) > SNAP_THRESHOLD){
+      prev.linkedNext = false;
+      prev.forceExpanded = true;
+    }
+    if(Math.abs(diffPrev) <= SNAP_THRESHOLD){
+      setBlockStartAbs(block, chain, prevEnd, { propagatePrev:false });
+      prev.linkedNext = true;
+      prev.forceExpanded = false;
+      block.forceExpanded = false;
+    }
+  }
+  const startAfter = block.startAbs || 0;
+  end = startAfter + duration;
+  if(next){
+    const nextStart = next.startAbs || 0;
+    const diffNext = nextStart - end;
+    if(block.linkedNext && Math.abs(diffNext) > SNAP_THRESHOLD){
+      block.linkedNext = false;
+      block.forceExpanded = true;
+    }
+    if(Math.abs(diffNext) <= SNAP_THRESHOLD){
+      block.linkedNext = true;
+      setBlockStartAbs(next, chain, end, { propagatePrev:false });
+      block.forceExpanded = false;
+      next.forceExpanded = false;
+    }
+  }
+}
+function applyAutoSnapGroup(chain, indexes){
+  if(!chain || !Array.isArray(indexes) || indexes.length===0) return;
+  const seen = new Set();
+  indexes.forEach(idx=>{
+    const blk = chain.blocks[idx];
+    if(blk && !blk.isClone){
+      applyAutoSnap(blk, chain);
+      seen.add(idx);
+    }
+  });
+  indexes.forEach(idx=>{
+    const prevIdx = idx - 1;
+    if(prevIdx >= 0 && !seen.has(prevIdx)){
+      const prevBlock = chain.blocks[prevIdx];
+      if(prevBlock && !prevBlock.isClone){
+        applyAutoSnap(prevBlock, chain);
+        seen.add(prevIdx);
+      }
+    }
+    const nextIdx = idx + 1;
+    if(nextIdx < chain.blocks.length && !seen.has(nextIdx)){
+      const nextBlock = chain.blocks[nextIdx];
+      if(nextBlock && !nextBlock.isClone){
+        applyAutoSnap(nextBlock, chain);
+        seen.add(nextIdx);
+      }
+    }
+  });
+}
+
+// ===== Conflict Detection =====
+function clearBlockFlags(){
+  blockDomRegistry.forEach(el=>{
+    el.classList.remove('overlap-soft','overlap-hard');
+  });
+}
+function flagBlockClass(blockId, className){
+  const el = blockDomRegistry.get(blockId);
+  if(el){
+    el.classList.add(className);
+  }
+}
+function checkConflicts(){
+  clearBlockFlags();
+  const hardSet = new Set(); const softSet = new Set();
+  state.chains.forEach(chain=>{
+    for(let i=1;i<chain.blocks.length;i++){
+      const a = chain.blocks[i-1], b = chain.blocks[i];
+      if(a?.isClone || b?.isClone) continue;
+      const aStart = (a.startAbs||0);
+      const aEnd = aStart + (a.dur || (a.end - a.start));
+      const bStart = (b.startAbs||0);
+      if(orderIndex(a.type) > orderIndex(b.type) || aEnd > bStart){
+        markHard(a, chain); markHard(b, chain);
+      }
+    }
+    const allBlocks = chain.blocks.flatMap(b=> b.assignees.map(uid=>({b,uid,chain})));
+    allBlocks.forEach((x,i)=>{ for(let j=i+1;j<allBlocks.length;j++){ const y = allBlocks[j];
+      if(x.uid===y.uid){
+        const xa = (x.b.startAbs||0), xb = xa + (x.b.dur || (x.b.end - x.b.start));
+        const ya = (y.b.startAbs||0), yb = ya + (y.b.dur || (y.b.end - y.b.start));
+        if( Math.max(xa,ya) < Math.min(xb,yb) ){
+          const st = chain.status;
+          if(['pendingReserve','pendingAssign','pendingConfirm'].includes(st)){ softSet.add(x.b.id); softSet.add(y.b.id); }
+          else { hardSet.add(x.b.id); hardSet.add(y.b.id); }
+        }
+      }
+    } });
+  });
+  softSet.forEach(id=> flagBlockClass(id, 'overlap-soft'));
+  hardSet.forEach(id=> flagBlockClass(id, 'overlap-hard'));
+}
+function orderIndex(t){ switch(t){ case 'receive': return 0; case 'digest': return 1; case 'flow': return 2; case 'sequencing': return 3; case 'emulsion': return 4; default: return 5; } }
+function overlap(s1,e1,s2,e2){ return Math.max(s1,s2) < Math.min(e1,e2) }
+function hasHardConflict(block, chain){
+  const idx = chain.blocks.findIndex(b=>b.id===block.id);
+  const bStart = (block.startAbs||0), bEnd = bStart + (block.dur || (block.end - block.start));
+  if(idx>0){ const prev = chain.blocks[idx-1]; const ps = (prev.startAbs||0), pe = ps + (prev.dur || (prev.end - prev.start)); if(orderIndex(prev.type) > orderIndex(block.type) || pe > bStart) return true; }
+  if(idx<chain.blocks.length-1){ const next = chain.blocks[idx+1]; const ns = (next.startAbs||0), ne = ns + (next.dur || (next.end - next.start)); if(orderIndex(block.type) > orderIndex(next.type) || bEnd > ns) return true; }
+  if(!['pendingReserve','pendingAssign','pendingConfirm'].includes(chain.status)){
+    for(const other of chain.blocks){ if(other===block) continue; const shareUser = other.assignees.some(a=> block.assignees.includes(a)); if(shareUser){ const os = (other.startAbs||0), oe = os + (other.dur || (other.end - other.start)); if( Math.max(bStart,os) < Math.min(bEnd,oe) ) return true; } }
+  }
+  return false;
+}
+function markHard(b, chain){ if(!b) return; flagBlockClass(b.id, 'overlap-hard'); }
+
+// ===== Role & View Controls =====
+function applyRoleView(){ const board = document.getElementById('board'); board.classList.toggle('anon', state.anon || state.role==='sales'); }
+
+// ===== Create Chain Workflow =====
+
+// ===== Chain Merge Helper =====
+
+// ===== Global Event Bindings =====
+document.getElementById('toggleAnon').addEventListener('click', ()=>{ state.anon = !state.anon; applyRoleView(); });
+roleSel.addEventListener('change', (e)=>{ state.role = roleSel.value; applyRoleView(); });
+
+// Zoom controls
+function setZoom(delta){
+  const root = document.documentElement;
+  const cur = parseFloat(getComputedStyle(root).getPropertyValue('--px-per-min')) || PX_PER_MIN;
+  const next = clamp(cur + delta, 0.2, 2.0);
+  root.style.setProperty('--px-per-min', next);
+  buildTicks(); buildGrid(); renderBlocks();
+  scrollToToday();
+}
+const zi = document.getElementById('zoomIn');
+const zo = document.getElementById('zoomOut');
+if(zi) zi.addEventListener('click', ()=> setZoom(0.15));
+if(zo) zo.addEventListener('click', ()=> setZoom(-0.15));
+// Center to now on demand
+const btnNow = document.getElementById('btnNow');
+if(btnNow) btnNow.addEventListener('click', centerOnNow);
+const btnSelf = document.getElementById('btnSelfCheck');
+if(btnSelf) btnSelf.addEventListener('click', ()=> selfCheck({autofix:true}));
+
+// ----- Create Order Modal -----
+const tplSelect = document.getElementById('fTemplate');
+const stageConfigEl = document.getElementById('stageConfig');
+experimentFieldsEl = document.getElementById('experimentFields');
+if(tplSelect){
+  tplSelect.innerHTML = STAGE_TEMPLATES.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  tplSelect.addEventListener('change', (e)=>{
+    const tplId = e.target.value;
+    applyTemplateSelection(tplId, { experimentValues: defaultExperimentValues(tplId) });
+  });
+}
+const initialTplId = (tplSelect && tplSelect.value) || stageState.templateId;
+applyTemplateSelection(initialTplId, { experimentValues: defaultExperimentValues(initialTplId) });
+
+const mask = document.getElementById('createMask');
+const openBtn = document.getElementById('openCreate');
+const closeBtn = document.getElementById('closeCreate');
+const cancelBtn = document.getElementById('cancelCreate');
+const submitBtn = document.getElementById('submitCreate');
+const toggleNavBtn = document.getElementById('toggleNav');
+const toggleRightBtn = document.getElementById('toggleRight');
+const productPanel = document.getElementById('productPanel');
+const productScrim = document.getElementById('productScrim');
+const productCloseBtn = document.getElementById('productCloseBtn');
+const productTabBtns = Array.from(document.querySelectorAll('[data-product-tab]'));
+const productSections = Array.from(document.querySelectorAll('[data-product-content]'));
+const productNavBtn = document.querySelector('.nav-chip[data-info="product"]');
+const productTitleEl = document.getElementById('productPanelTitle');
+const mainViewButtons = Array.from(document.querySelectorAll('.nav-item.nav-major'));
+const PRODUCT_TITLES = {
+  list: '产品清单',
+  create: '新增产品',
+  components: '控件库',
+  workflow: '实验流程定义'
+};
+const MAIN_VIEW_CLASSES = {
+  experiment: 'view-experiment',
+  order: 'view-order',
+  analysis: 'view-analysis'
+};
+
+const ORDER_BASE_UNITS = [
+  { id:'unit-fudan', name:'复旦大学', location:'上海', owner:true, badge:'复', defaultContact:'王伟' },
+  { id:'unit-fudan-med', name:'复旦大学医学院', location:'上海', owner:true, badge:'医', defaultContact:'李妍' },
+  { id:'unit-renmin', name:'上海市第九人民医院', location:'上海', owner:false, badge:'九', defaultContact:'周凌' },
+  { id:'unit-jiaoda', name:'上海交通大学', location:'上海', owner:true, badge:'交', defaultContact:'陈永' },
+  { id:'unit-shanghaitech', name:'上海科技大学', location:'上海', owner:false, badge:'科', defaultContact:'王睿' }
+];
+
+const ORDER_BASE_GROUPS = [
+  { id:'group-immune-1', unitId:'unit-fudan', name:'免疫课题组 1', domain:'免疫', owner:true, leader:'李娜' },
+  { id:'group-immune-2', unitId:'unit-fudan', name:'免疫课题组 2', domain:'免疫', owner:true, leader:'郭阳' },
+  { id:'group-trans-1', unitId:'unit-fudan-med', name:'转化课题组 1', domain:'转化', owner:true, leader:'王俊' },
+  { id:'group-trans-2', unitId:'unit-fudan-med', name:'转化课题组 2', domain:'转化', owner:true, leader:'周宁' },
+  { id:'group-joint-1', unitId:'unit-jiaoda', name:'联合课题组 1', domain:'联合', owner:false, leader:'陈芳' },
+  { id:'group-unknown', unitId:'unit-renmin', name:'未分配课题组', domain:'待定', owner:false, leader:'未知' }
+];
+
+const ORDER_BASE_CUSTOMERS = [
+  { id:'cust-wang', name:'王小虎', groupId:'group-immune-1', sales:'李明', activity:'高', focus:'单细胞', owner:true },
+  { id:'cust-zhao', name:'赵丽', groupId:'group-immune-2', sales:'韩琪', activity:'中', focus:'ATAC', owner:true },
+  { id:'cust-liang', name:'梁晨', groupId:'group-trans-1', sales:'张琪', activity:'中', focus:'空间转录组', owner:true },
+  { id:'cust-zhou', name:'周一', groupId:'group-trans-2', sales:'李明', activity:'低', focus:'多组学', owner:true },
+  { id:'cust-joint', name:'联合客户', groupId:'group-joint-1', sales:'王宇', activity:'中', focus:'外部合作', owner:false },
+  { id:'cust-off', name:'暂未分配客户', groupId:'group-unknown', sales:'待分配', activity:'低', focus:'未知', owner:false }
+];
+
+const ORDER_BASE_ACCOUNTS = [
+  { id:'acct-bjzs', code:'BJ-ZS-231021', customerId:'cust-wang', balance:1200000, limit:1500000, status:'正常' },
+  { id:'acct-shyf', code:'SH-YF-240105', customerId:'cust-zhao', balance:600000, limit:1200000, status:'预警' },
+  { id:'acct-bjnu', code:'BJ-NU-240210', customerId:'cust-liang', balance:320000, limit:900000, status:'冻结' },
+  { id:'acct-trans', code:'TR-001', customerId:'cust-zhou', balance:450000, limit:1000000, status:'正常' },
+  { id:'acct-joint', code:'JT-880', customerId:'cust-joint', balance:980000, limit:1200000, status:'正常' }
+];
+
+const ORDER_BASE_ORDERS = [
+  { id:'order-scran-01', name:'JXLB-231021-SC', customerId:'cust-wang', accountId:'acct-bjzs', stage:'执行中', product:'单细胞测序', amount:1000000 },
+  { id:'order-atac-01', name:'JXLB-240110-ATAC', customerId:'cust-zhao', accountId:'acct-shyf', stage:'立项', product:'ATAC-Seq', amount:650000 },
+  { id:'order-multi-01', name:'JXLB-240201-MIX', customerId:'cust-zhou', accountId:'acct-trans', stage:'暂停', product:'多组学', amount:840000 },
+  { id:'order-space-01', name:'JXLB-240305-SP', customerId:'cust-liang', accountId:'acct-bjnu', stage:'方案确认', product:'空间转录组', amount:540000 },
+  { id:'order-collab-01', name:'JT-2024-合作订单', customerId:'cust-joint', accountId:'acct-joint', stage:'执行中', product:'外部合作项目', amount:920000 }
+];
+
+const ORDER_TIMELINES = {
+  'cust-wang': [
+    { time:'2024-10-28', user:'李明', text:'提交样本验收结果，确认 12 月批次走单。' },
+    { time:'2024-10-19', user:'王怡', text:'线上会议沟通建库需求，确认 10X 芯片规格。' },
+    { time:'2024-09-30', user:'李明', text:'回款到账 ¥500,000，更新资金账户额度。' },
+    { time:'2024-09-12', user:'李明', text:'提交项目方案 V2，等待客户技术团队反馈。' }
+  ],
+  'cust-zhao': [
+    { time:'2024-10-21', user:'韩琪', text:'ATAC 计划立项讨论，等待客户内部审批。' },
+    { time:'2024-10-08', user:'韩琪', text:'发送上机排期信息，提醒补充账户资金。' }
+  ],
+  'cust-liang': [
+    { time:'2024-09-15', user:'张琪', text:'空间转录组方案评审完成，进入合同草拟阶段。' }
+  ],
+  'cust-zhou': [
+    { time:'2024-09-05', user:'李明', text:'多组学项目暂停，等待样本重新采集。' }
+  ]
+};
+
+function randBetween(min, max){ return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function generateOrderGraphData(){
+  const units = ORDER_BASE_UNITS.map(unit=>({
+    ...unit,
+    activeOrders: randBetween(2,8),
+    ongoingAmount: randBetween(40,120) * 10000
+  }));
+  const groups = ORDER_BASE_GROUPS.map(group=>({
+    ...group,
+    projectCount: randBetween(1,6),
+    budget: randBetween(30,80) * 10000
+  }));
+  const customers = ORDER_BASE_CUSTOMERS.map(customer=>({
+    ...customer,
+    lastContactDays: randBetween(1,14),
+    pipelineValue: randBetween(30,120) * 10000
+  }));
+  const accounts = ORDER_BASE_ACCOUNTS.map(account=>({
+    ...account,
+    availablePercent: Math.round((account.balance / account.limit) * 100)
+  }));
+  const orders = ORDER_BASE_ORDERS.map(order=>({
+    ...order,
+    progress: randBetween(25,95)
+  }));
+  return { units, groups, customers, accounts, orders };
+}
+
+const ORDER_COLUMN_CONFIG = [
+  {
+    key:'unit',
+    title:'单位',
+    placeholder:'搜索单位 / 院系',
+    items:data=>data.units,
+    searchText:item=>`${item.name} ${item.location || ''} ${item.badge || ''} ${item.defaultContact || ''}`
+  },
+  {
+    key:'group',
+    title:'课题组',
+    placeholder:'搜索课题组 / 研究方向',
+    items:data=>data.groups,
+    searchText:item=>`${item.name} ${item.domain || ''} ${item.leader || ''}`
+  },
+  {
+    key:'customer',
+    title:'客户',
+    placeholder:'搜索客户 / 销售',
+    items:data=>data.customers,
+    searchText:item=>`${item.name} ${item.sales || ''} ${item.focus || ''}`
+  },
+  {
+    key:'account',
+    title:'资金账户',
+    placeholder:'搜索账户编号 / 状态',
+    items:data=>data.accounts,
+    searchText:item=>`${item.code} ${item.status}`
+  },
+  {
+    key:'order',
+    title:'订单',
+    placeholder:'搜索订单 / 产品',
+    items:data=>data.orders,
+    searchText:item=>`${item.name} ${item.product || ''} ${item.stage || ''}`
+  }
+];
+
+const ORDER_SCENARIOS = {
+  unitSearch: {
+    note:'场景 1：输入单位关键字“复旦”，联动高亮对应课题组、客户与订单。',
+    search:{ unit:'复旦' },
+    anchor:{ unitId:'unit-fudan' },
+    defaultSelection:{ kind:'customer', id:'cust-wang' },
+    dimOthers:true
+  },
+  unitFocus: {
+    note:'场景 2：聚焦“上海交通大学”链路，比较合作项目的资金风险。',
+    search:{ unit:'交大' },
+    anchor:{ unitId:'unit-jiaoda' },
+    defaultSelection:{ kind:'account', id:'acct-trans' },
+    dimOthers:false,
+    extraMatches:{ order:['order-collab-01'] }
+  },
+  groupSearch: {
+    note:'场景 3：课题组“转化课题组 1”正在推进的客户与订单概览。',
+    search:{ group:'转化 1' },
+    anchor:{ groupId:'group-trans-1' },
+    defaultSelection:{ kind:'customer', id:'cust-liang' },
+    dimOthers:true
+  },
+  customerSearch: {
+    note:'场景 4：锁定客户“赵丽”，核对其账户余额与订单进度。',
+    search:{ customer:'赵丽' },
+    anchor:{ customerId:'cust-zhao' },
+    defaultSelection:{ kind:'customer', id:'cust-zhao' },
+    dimOthers:true
+  },
+  orderSearch: {
+    note:'场景 5：直接定位订单“JXLB-231021-SC”，查看执行进度与资金。',
+    search:{ order:'JXLB' },
+    anchor:{ orderId:'order-scran-01' },
+    defaultSelection:{ kind:'order', id:'order-scran-01' },
+    dimOthers:true
+  }
+};
+
+const orderColumnsEl = document.getElementById('orderColumns');
+const orderScenarioSelect = document.getElementById('orderScenario');
+const orderScenarioNoteEl = document.getElementById('orderScenarioNote');
+const orderScenarioRefreshBtn = document.getElementById('orderScenarioRefresh');
+
+const orderBoardState = {
+  data:null,
+  filters:{},
+  scenarioKey:'unitSearch',
+  resolved:null,
+  selection:null
+};
+
+function initialsFromName(name=''){
+  const clean = String(name).trim();
+  if(!clean) return '—';
+  if(clean.length <= 2) return clean;
+  return clean.slice(0,2);
+}
+function clampPercent(value){
+  if(!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+function formatCurrency(amount){
+  if(typeof amount !== 'number' || Number.isNaN(amount)) return '—';
+  return amount.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+}
+function computeOrderPath(anchor={}, data){
+  const path = { unit:new Set(), group:new Set(), customer:new Set(), account:new Set(), order:new Set() };
+  if(!data) return path;
+  const unitsById = new Map(data.units.map(item=>[item.id, item]));
+  const groupsById = new Map(data.groups.map(item=>[item.id, item]));
+  const customersById = new Map(data.customers.map(item=>[item.id, item]));
+  const accountsById = new Map(data.accounts.map(item=>[item.id, item]));
+  const ordersById = new Map(data.orders.map(item=>[item.id, item]));
+  const visited = {
+    unit:new Set(), group:new Set(), customer:new Set(), account:new Set(), order:new Set()
+  };
+  const includeUnit = (id)=>{
+    if(!id || visited.unit.has(id)) return;
+    visited.unit.add(id);
+    path.unit.add(id);
+    const relatedGroups = data.groups.filter(g=>g.unitId === id);
+    relatedGroups.forEach(group=> includeGroup(group.id));
+  };
+  const includeGroup = (id)=>{
+    if(!id || visited.group.has(id)) return;
+    visited.group.add(id);
+    path.group.add(id);
+    const group = groupsById.get(id);
+    if(group){ includeUnit(group.unitId); }
+    const relatedCustomers = data.customers.filter(c=>c.groupId === id);
+    relatedCustomers.forEach(customer=> includeCustomer(customer.id));
+  };
+  const includeCustomer = (id)=>{
+    if(!id || visited.customer.has(id)) return;
+    visited.customer.add(id);
+    path.customer.add(id);
+    const customer = customersById.get(id);
+    if(customer){ includeGroup(customer.groupId); }
+    const relatedAccounts = data.accounts.filter(a=>a.customerId === id);
+    relatedAccounts.forEach(account=> includeAccount(account.id));
+    const relatedOrders = data.orders.filter(o=>o.customerId === id);
+    relatedOrders.forEach(order=> includeOrder(order.id));
+  };
+  const includeAccount = (id)=>{
+    if(!id || visited.account.has(id)) return;
+    visited.account.add(id);
+    path.account.add(id);
+    const account = accountsById.get(id);
+    if(account){ includeCustomer(account.customerId); }
+  };
+  const includeOrder = (id)=>{
+    if(!id || visited.order.has(id)) return;
+    visited.order.add(id);
+    path.order.add(id);
+    const order = ordersById.get(id);
+    if(order){
+      includeCustomer(order.customerId);
+      includeAccount(order.accountId);
+    }
+  };
+  if(anchor.orderId){ includeOrder(anchor.orderId); }
+  else if(anchor.accountId){ includeAccount(anchor.accountId); }
+  else if(anchor.customerId){ includeCustomer(anchor.customerId); }
+  else if(anchor.groupId){ includeGroup(anchor.groupId); }
+  else if(anchor.unitId){ includeUnit(anchor.unitId); }
+  return path;
+}
+function resolveScenarioState(data, scenario){
+  const anchor = scenario?.anchor || {};
+  const path = computeOrderPath(anchor, data);
+  const highlight = { unit:new Set(path.unit), group:new Set(path.group), customer:new Set(path.customer), account:new Set(path.account), order:new Set(path.order) };
+  if(scenario?.extraMatches){
+    Object.entries(scenario.extraMatches).forEach(([key, list])=>{
+      if(Array.isArray(list)){ list.forEach(id=> highlight[key]?.add(id)); }
+    });
+  }
+  const dimOthers = scenario?.dimOthers !== false;
+  const anchorKind = anchor.orderId ? 'order'
+    : anchor.accountId ? 'account'
+    : anchor.customerId ? 'customer'
+    : anchor.groupId ? 'group'
+    : anchor.unitId ? 'unit'
+    : null;
+  const anchorId = anchorKind ? anchor[`${anchorKind}Id`] : null;
+  let suggestedSelection = scenario?.defaultSelection || null;
+  if(!suggestedSelection){
+    if(anchorKind && anchorId){
+      suggestedSelection = { kind:anchorKind, id:anchorId };
+    }else if(highlight.customer.size){
+      suggestedSelection = { kind:'customer', id:[...highlight.customer][0] };
+    }else if(highlight.order.size){
+      suggestedSelection = { kind:'order', id:[...highlight.order][0] };
+    }
+  }
+  return {
+    note: scenario?.note || '',
+    search: { ...(scenario?.search || {}) },
+    highlight,
+    dimOthers,
+    anchorKind,
+    anchorId,
+    defaultSelection: suggestedSelection
+  };
+}
+function entityExists(selection, data){
+  if(!selection) return false;
+  const config = ORDER_COLUMN_CONFIG.find(cfg=>cfg.key === selection.kind);
+  if(!config || typeof config.items !== 'function') return false;
+  const items = config.items(data) || [];
+  return items.some(item=> item.id === selection.id);
+}
+function cardMatchesFilter(item, filterText, config){
+  const value = typeof config.searchText === 'function' ? config.searchText(item) : '';
+  if(!filterText) return true;
+  return value.toLowerCase().includes(filterText.toLowerCase());
+}
+function buildOrderCardMarkup(kind, item){
+  switch(kind){
+    case 'unit':{
+      const amountPct = clampPercent((item.ongoingAmount || 0) / 1500000 * 100);
+      const roleTag = item.owner ? '自营单位' : '合作单位';
+      const riskClass = item.owner ? '' : 'warning';
+      return `
+        <strong><span class="avatar">${initialsFromName(item.badge || item.name)}</span>${item.name}</strong>
+        <div class="meta"><span>${item.location || '—'}</span><span>联系人 ${item.defaultContact || '—'}</span></div>
+        <div class="status"><span>${roleTag}</span><span class="${riskClass}">活跃 ${item.activeOrders || 0} 单</span></div>
+        <div class="meta"><span>在研金额 ¥${formatCurrency(item.ongoingAmount)}</span></div>
+        <div class="progress"><div style="width:${Math.max(amountPct, 8)}%"></div></div>
+      `;
+    }
+    case 'group':{
+      const workloadPct = clampPercent((item.projectCount || 0) / 8 * 100);
+      const ownership = item.owner ? '内部课题组' : '合作课题组';
+      return `
+        <strong><span class="avatar">${initialsFromName(item.name)}</span>${item.name}</strong>
+        <div class="meta"><span>${item.domain || '—'} </span><span>PI ${item.leader || '—'}</span></div>
+        <div class="status"><span>${ownership}</span><span>在研 ${item.projectCount || 0} 项</span></div>
+        <div class="meta"><span>年度预算 ¥${formatCurrency(item.budget)}</span></div>
+        <div class="progress"><div style="width:${Math.max(workloadPct, 6)}%"></div></div>
+      `;
+    }
+    case 'customer':{
+      const activityClass = item.activity === '高' ? '' : (item.activity === '中' ? 'warning' : 'danger');
+      const pipelinePct = clampPercent((item.pipelineValue || 0) / 1200000 * 100);
+      return `
+        <strong><span class="avatar">${initialsFromName(item.name)}</span>${item.name}</strong>
+        <div class="meta"><span>销售 ${item.sales || '—'}</span><span>方向 ${item.focus || '—'}</span><span>近 ${item.lastContactDays || 0} 天联系</span></div>
+        <div class="status"><span class="${activityClass}">活跃度 ${item.activity || '—'}</span></div>
+        <div class="meta"><span>管线价值 ¥${formatCurrency(item.pipelineValue)}</span></div>
+        <div class="progress"><div style="width:${Math.max(pipelinePct, 6)}%"></div></div>
+      `;
+    }
+    case 'account':{
+      const usage = 100 - clampPercent(item.availablePercent);
+      const statusClass = item.status === '冻结' ? 'danger' : (item.status === '预警' ? 'warning' : '');
+      return `
+        <strong><span class="avatar">${initialsFromName(item.code.slice(-3))}</span>${item.code}</strong>
+        <div class="meta"><span>余额 ¥${formatCurrency(item.balance)}</span><span>额度 ¥${formatCurrency(item.limit)}</span></div>
+        <div class="status"><span class="${statusClass}">${item.status}</span><span>使用率 ${usage}%</span></div>
+        <div class="progress"><div style="width:${Math.max(usage, 4)}%"></div></div>
+      `;
+    }
+    case 'order':{
+      return `
+        <strong><span class="avatar">${initialsFromName(item.product)}</span>${item.name}</strong>
+        <div class="meta"><span>${item.stage}</span><span>${item.product}</span></div>
+        <div class="meta"><span>合同金额 ¥${formatCurrency(item.amount)}</span></div>
+        <div class="progress"><div style="width:${clampPercent(item.progress)}%"></div></div>
+      `;
+    }
+    default:
+      return '<div class="meta">未定义类型</div>';
+  }
+}
+function getOrderCardClasses(kind, id, resolved){
+  const classes = [];
+  const highlightSet = resolved?.highlight?.[kind];
+  const hasHighlight = highlightSet && highlightSet.size > 0;
+  if(highlightSet?.has(id)){
+    classes.push('match');
+  }else if(resolved?.dimOthers && hasHighlight){
+    classes.push('disabled');
+  }
+  if(orderBoardState.selection && orderBoardState.selection.kind === kind && orderBoardState.selection.id === id){
+    classes.push('selected');
+  }
+  if(resolved?.anchorKind === kind && resolved.anchorId === id){
+    classes.push('focus');
+  }
+  return classes;
+}
+function renderOrderCard(kind, item, resolved){
+  const card = document.createElement('div');
+  card.className = 'order-card';
+  card.dataset.kind = kind;
+  card.dataset.id = item.id;
+  const classes = getOrderCardClasses(kind, item.id, resolved);
+  if(classes.length){ card.classList.add(...classes); }
+  card.innerHTML = buildOrderCardMarkup(kind, item);
+  card.addEventListener('click', ()=>{
+    orderBoardState.selection = { kind, id:item.id };
+    renderOrderBoard();
+  });
+  return card;
+}
+function renderOrderColumn(config, data, resolved){
+  const columnEl = document.createElement('div');
+  columnEl.className = 'order-column';
+  columnEl.dataset.kind = config.key;
+  const headEl = document.createElement('div');
+  headEl.className = 'order-column-head';
+  const titleEl = document.createElement('h3');
+  titleEl.textContent = config.title;
+  headEl.appendChild(titleEl);
+  const inputEl = document.createElement('input');
+  inputEl.type = 'search';
+  inputEl.placeholder = config.placeholder;
+  const currentFilter = orderBoardState.filters[config.key] ?? '';
+  inputEl.value = currentFilter;
+  inputEl.addEventListener('input', (evt)=>{
+    orderBoardState.filters[config.key] = evt.target.value;
+    renderOrderBoard();
+  });
+  headEl.appendChild(inputEl);
+  columnEl.appendChild(headEl);
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'order-column-body';
+  const items = typeof config.items === 'function' ? config.items(data) : [];
+  const filterText = (orderBoardState.filters[config.key] || '').trim();
+  const filtered = items.filter(item=> cardMatchesFilter(item, filterText, config));
+  if(filtered.length){
+    filtered.forEach(item=>{
+      bodyEl.appendChild(renderOrderCard(config.key, item, resolved));
+    });
+  }else{
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.innerHTML = '<strong>暂无匹配</strong><span>调整筛选条件以查看数据</span>';
+    bodyEl.appendChild(empty);
+  }
+  columnEl.appendChild(bodyEl);
+  return columnEl;
+}
+function renderOrderDetails(selection, data, resolved){
+  const panel = document.createElement('div');
+  panel.className = 'order-details-panel';
+  if(!selection || !entityExists(selection, data)){
+    panel.innerHTML = '<div class="placeholder">选择左侧任意卡片查看详细信息</div>';
+    return panel;
+  }
+  const byId = {
+    unit: new Map(data.units.map(item=>[item.id, item])),
+    group: new Map(data.groups.map(item=>[item.id, item])),
+    customer: new Map(data.customers.map(item=>[item.id, item])),
+    account: new Map(data.accounts.map(item=>[item.id, item])),
+    order: new Map(data.orders.map(item=>[item.id, item]))
+  };
+  const getGroupsOfUnit = (unitId)=> data.groups.filter(g=>g.unitId === unitId);
+  const getCustomersOfGroup = (groupId)=> data.customers.filter(c=>c.groupId === groupId);
+  const getAccountsOfCustomer = (customerId)=> data.accounts.filter(a=>a.customerId === customerId);
+  const getOrdersOfCustomer = (customerId)=> data.orders.filter(o=>o.customerId === customerId);
+  const getOrdersOfAccount = (accountId)=> data.orders.filter(o=>o.accountId === accountId);
+  const timelineHtml = (customerId)=>{
+    const timeline = ORDER_TIMELINES[customerId] || [];
+    if(!timeline.length){
+      return '<div class="placeholder">暂无跟进记录</div>';
+    }
+    return `<div class="timeline">${timeline.map(item=>`
+      <div class="timeline-item"><div class="time">${item.time} · ${item.user}</div><div>${item.text}</div></div>
+    `).join('')}</div>`;
+  };
+  if(selection.kind === 'unit'){
+    const unit = byId.unit.get(selection.id);
+    const groups = getGroupsOfUnit(unit.id);
+    const customers = groups.flatMap(g=> getCustomersOfGroup(g.id));
+    panel.innerHTML = `
+      <h3>${unit.name}</h3>
+      <div class="detail-block">
+        <div class="title">单位概览</div>
+        <div class="detail-grid">
+          <span>所在地：${unit.location || '—'}</span>
+          <span>默认联系人：${unit.defaultContact || '—'}</span>
+          <span>活跃订单：${unit.activeOrders || 0} 单</span>
+          <span>在研金额：¥${formatCurrency(unit.ongoingAmount)}</span>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="title">课题组与客户</div>
+        <div class="detail-grid">
+          <span>课题组数量：${groups.length}</span>
+          <span>客户数量：${customers.length}</span>
+        </div>
+      </div>
+    `;
+    return panel;
+  }
+  if(selection.kind === 'group'){
+    const group = byId.group.get(selection.id);
+    const unit = byId.unit.get(group.unitId);
+    const customers = getCustomersOfGroup(group.id);
+    panel.innerHTML = `
+      <h3>${group.name}</h3>
+      <div class="detail-block">
+        <div class="title">课题组概览</div>
+        <div class="detail-grid">
+          <span>所属单位：${unit?.name || '—'}</span>
+          <span>研究方向：${group.domain || '—'}</span>
+          <span>负责人：${group.leader || '—'}</span>
+          <span>在研项目：${group.projectCount || 0} 项</span>
+          <span>年度预算：¥${formatCurrency(group.budget)}</span>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="title">关联客户</div>
+        ${customers.length ? customers.map(c=>`<div>${c.name} · 销售 ${c.sales}</div>`).join('') : '<div class="placeholder">暂无客户</div>'}
+      </div>
+    `;
+    return panel;
+  }
+  if(selection.kind === 'customer'){
+    const customer = byId.customer.get(selection.id);
+    const group = byId.group.get(customer.groupId);
+    const unit = group ? byId.unit.get(group.unitId) : null;
+    const accounts = getAccountsOfCustomer(customer.id);
+    const orders = getOrdersOfCustomer(customer.id);
+    panel.innerHTML = `
+      <h3>${customer.name}</h3>
+      <div class="detail-block">
+        <div class="title">客户概览</div>
+        <div class="detail-grid">
+          <span>课题组：${group?.name || '—'}</span>
+          <span>所属单位：${unit?.name || '—'}</span>
+          <span>销售负责人：${customer.sales || '—'}</span>
+          <span>研究方向：${customer.focus || '—'}</span>
+          <span>活跃度：${customer.activity || '—'}</span>
+          <span>近联系天数：${customer.lastContactDays || 0}</span>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="title">资金账户</div>
+        ${accounts.length ? accounts.map(acc=>`
+          <div class="detail-grid">
+            <span>账户编号：${acc.code}</span>
+            <span>余额：¥${formatCurrency(acc.balance)}</span>
+            <span>额度：¥${formatCurrency(acc.limit)}</span>
+            <span>状态：${acc.status}</span>
+          </div>
+        `).join('') : '<div class="placeholder">暂无资金账户</div>'}
+      </div>
+      <div class="detail-block">
+        <div class="title">订单进度</div>
+        ${orders.length ? orders.map(order=>`
+          <div class="detail-grid">
+            <span>订单：${order.name}</span>
+            <span>阶段：${order.stage}</span>
+            <span>产品：${order.product}</span>
+            <span>金额：¥${formatCurrency(order.amount)}</span>
+            <span>进度：${clampPercent(order.progress)}%</span>
+          </div>
+        `).join('') : '<div class="placeholder">暂无在研订单</div>'}
+      </div>
+      <div class="detail-block">
+        <div class="title">跟进时间线</div>
+        ${timelineHtml(customer.id)}
+      </div>
+    `;
+    return panel;
+  }
+  if(selection.kind === 'account'){
+    const account = byId.account.get(selection.id);
+    const customer = byId.customer.get(account.customerId);
+    const orders = getOrdersOfAccount(account.id);
+    panel.innerHTML = `
+      <h3>${account.code}</h3>
+      <div class="detail-block">
+        <div class="title">账户概览</div>
+        <div class="detail-grid">
+          <span>客户：${customer?.name || '—'}</span>
+          <span>余额：¥${formatCurrency(account.balance)}</span>
+          <span>额度：¥${formatCurrency(account.limit)}</span>
+          <span>状态：${account.status}</span>
+          <span>可用比例：${account.availablePercent}%</span>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="title">关联订单</div>
+        ${orders.length ? orders.map(order=>`
+          <div class="detail-grid">
+            <span>${order.name}</span>
+            <span>阶段：${order.stage}</span>
+            <span>金额：¥${formatCurrency(order.amount)}</span>
+          </div>
+        `).join('') : '<div class="placeholder">暂无关联订单</div>'}
+      </div>
+    `;
+    return panel;
+  }
+  if(selection.kind === 'order'){
+    const order = byId.order.get(selection.id);
+    const customer = byId.customer.get(order.customerId);
+    const account = byId.account.get(order.accountId);
+    const group = customer ? byId.group.get(customer.groupId) : null;
+    const unit = group ? byId.unit.get(group.unitId) : null;
+    panel.innerHTML = `
+      <h3>${order.name}</h3>
+      <div class="detail-block">
+        <div class="title">订单概览</div>
+        <div class="detail-grid">
+          <span>产品：${order.product}</span>
+          <span>阶段：${order.stage}</span>
+          <span>金额：¥${formatCurrency(order.amount)}</span>
+          <span>进度：${clampPercent(order.progress)}%</span>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="title">客户及归属</div>
+        <div class="detail-grid">
+          <span>客户：${customer?.name || '—'}</span>
+          <span>课题组：${group?.name || '—'}</span>
+          <span>单位：${unit?.name || '—'}</span>
+          <span>资金账户：${account?.code || '—'}</span>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="title">客户跟进</div>
+        ${customer ? timelineHtml(customer.id) : '<div class="placeholder">暂无记录</div>'}
+      </div>
+    `;
+    return panel;
+  }
+  panel.innerHTML = '<div class="placeholder">暂不支持的类型</div>';
+  return panel;
+}
+function renderOrderBoard(){
+  if(!orderColumnsEl || !orderBoardState.data) return;
+  const resolved = orderBoardState.resolved || resolveScenarioState(orderBoardState.data, ORDER_SCENARIOS[orderBoardState.scenarioKey]);
+  orderBoardState.resolved = resolved;
+  if(orderScenarioNoteEl){ orderScenarioNoteEl.textContent = resolved.note || ''; }
+  if(!orderBoardState.selection || !entityExists(orderBoardState.selection, orderBoardState.data)){
+    orderBoardState.selection = resolved.defaultSelection || null;
+  }
+  orderColumnsEl.innerHTML = '';
+  ORDER_COLUMN_CONFIG.forEach(config=>{
+    orderColumnsEl.appendChild(renderOrderColumn(config, orderBoardState.data, resolved));
+  });
+  orderColumnsEl.appendChild(renderOrderDetails(orderBoardState.selection, orderBoardState.data, resolved));
+}
+function applyOrderScenario(key, { regenerate=false, keepFilters=false } = {}){
+  const scenarioKey = ORDER_SCENARIOS[key] ? key : 'unitSearch';
+  orderBoardState.scenarioKey = scenarioKey;
+  if(orderScenarioSelect && orderScenarioSelect.value !== scenarioKey){
+    orderScenarioSelect.value = scenarioKey;
+  }
+  if(regenerate || !orderBoardState.data){
+    orderBoardState.data = generateOrderGraphData();
+  }
+  const scenario = ORDER_SCENARIOS[scenarioKey];
+  const resolved = resolveScenarioState(orderBoardState.data, scenario);
+  orderBoardState.resolved = resolved;
+  if(!keepFilters){
+    orderBoardState.filters = { ...resolved.search };
+  }
+  if(!orderBoardState.selection || !entityExists(orderBoardState.selection, orderBoardState.data)){
+    orderBoardState.selection = resolved.defaultSelection || null;
+  }
+  renderOrderBoard();
+}
+function initOrderBoard(){
+  if(!orderColumnsEl) return;
+  if(!orderBoardState.data){
+    orderBoardState.data = generateOrderGraphData();
+  }
+  const initialKey = orderScenarioSelect?.value || orderBoardState.scenarioKey;
+  applyOrderScenario(initialKey, { regenerate:false, keepFilters:false });
+  orderScenarioSelect?.addEventListener('change', evt=>{
+    applyOrderScenario(evt.target.value, { regenerate:false, keepFilters:false });
+  });
+  orderScenarioRefreshBtn?.addEventListener('click', ()=>{
+    applyOrderScenario(orderBoardState.scenarioKey, { regenerate:true, keepFilters:false });
+  });
+}
+function updateRailState(){
+  const navOpen = document.body.classList.contains('nav-open');
+  const rightOpen = document.body.classList.contains('right-open');
+  if(toggleNavBtn) toggleNavBtn.setAttribute('aria-pressed', navOpen ? 'true' : 'false');
+  if(toggleRightBtn) toggleRightBtn.setAttribute('aria-pressed', rightOpen ? 'true' : 'false');
+}
+toggleNavBtn?.addEventListener('click', ()=>{
+  document.body.classList.toggle('nav-open');
+  updateRailState();
+});
+toggleRightBtn?.addEventListener('click', ()=>{
+  document.body.classList.toggle('right-open');
+  updateRailState();
+});
+updateRailState();
+
+function switchProductTab(key){
+  productTabBtns.forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.productTab === key);
+  });
+  productSections.forEach(section=>{
+    section.classList.toggle('hidden', section.dataset.productContent !== key);
+  });
+  if(productTitleEl && PRODUCT_TITLES[key]){
+    productTitleEl.textContent = PRODUCT_TITLES[key];
+  }
+  requestAnimationFrame(()=>{
+    adjustCenterLineForPanel();
+    placeNowLine();
+  });
+}
+
+function switchMainView(viewKey){
+  const className = MAIN_VIEW_CLASSES[viewKey] || MAIN_VIEW_CLASSES.experiment;
+  Object.values(MAIN_VIEW_CLASSES).forEach(cls=> document.body.classList.remove(cls));
+  document.body.classList.add(className);
+  mainViewButtons.forEach(btn=> btn.classList.toggle('active', btn.dataset.mainView === viewKey));
+  requestAnimationFrame(()=>{
+    placeNowLine();
+    adjustCenterLineForPanel();
+  });
+}
+function openProductPanel(){
+  if(!productPanel) return;
+  productPanel.classList.remove('hidden');
+  productScrim?.classList.add('active');
+  productNavBtn?.classList.add('active');
+  document.body.classList.add('panel-open');
+  switchProductTab(productTabBtns[0]?.dataset.productTab || 'list');
+  requestAnimationFrame(()=> adjustCenterLineForPanel());
+}
+function closeProductPanel(){
+  productPanel?.classList.add('hidden');
+  productScrim?.classList.remove('active');
+  productNavBtn?.classList.remove('active');
+  document.body.classList.remove('panel-open');
+  requestAnimationFrame(()=> adjustCenterLineForPanel());
+}
+productNavBtn?.addEventListener('click', ()=>{
+  if(productPanel?.classList.contains('hidden')){
+    openProductPanel();
+  }else{
+    closeProductPanel();
+  }
+});
+productCloseBtn?.addEventListener('click', closeProductPanel);
+productScrim?.addEventListener('click', closeProductPanel);
+productTabBtns.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    switchProductTab(btn.dataset.productTab);
+  });
+});
+adjustCenterLineForPanel();
+
+mainViewButtons.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const viewKey = btn.dataset.mainView;
+    if(viewKey){ switchMainView(viewKey); }
+  });
+});
+switchMainView('experiment');
+initOrderBoard();
+const createPresets = {
+  customers:['许兵','秦楚','李瑶','孙至','王桐','陈格','戴晨','汪逸'],
+  sales:['孙书雅','林可','赵雪晴','吴杰','裴晨','侯伟'],
+  labs:['上海上机室','广州上机室','南京上机室','北京上机室'],
+  species:['人','小鼠','大鼠'],
+  cellTypes:['PBMC','肿瘤组织','脾细胞','血液样本'],
+  finance:['预收账：研发往来账户','尾款待收：￥2,000','本次消费计入：单细胞专用账户'],
+  emergencyNames:['Shao Changning','李娜','林倩'],
+  emergencyPhones:['15216699955','13912345678','18200008888'],
+  sampleNotes:['收样即测，质控优先','样本需低温保存，请提前预冷','需同步抽提核酸进行 QC']
+};
+let createSequence = 0;
+function pickPreset(list){ if(!Array.isArray(list) || list.length===0) return ''; const idx = (createSequence + Math.floor(Math.random()*list.length)) % list.length; return list[idx]; }
+function minutesToHHMM(mins){ const h = Math.floor(mins/60); const m = mins % 60; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
+const modalEl = document.querySelector('#createMask .modal');
+const createTitle = document.getElementById('createTitle');
+const stageReadonlyEl = document.getElementById('stageReadonly');
+const contractInput = document.getElementById('fContract');
+const customerInput = document.getElementById('fCustomer');
+const speciesInput = document.getElementById('fSpecies');
+const salesInput = document.getElementById('fSales');
+const templateInput = document.getElementById('fTemplate');
+const financeInput = document.getElementById('fFinanceInfo');
+const labInput = document.getElementById('fLab');
+const dateInput = document.getElementById('fDate');
+const timeInput = document.getElementById('fTime');
+const snapInput = document.getElementById('fSnapEnabled');
+const emergencyNameInput = document.getElementById('fEmergencyName');
+const emergencyPhoneInput = document.getElementById('fEmergencyPhone');
+let editingChainId = null;
+function generateContractNo(){
+  const now = getDateParts();
+  const suffix = String(Math.floor(Math.random()*90)+10);
+  return `HT-${now.y}${String(now.m).padStart(2,'0')}${String(now.d).padStart(2,'0')}-${suffix}`;
+}
+function setFieldValue(el, value){
+  if(!el) return;
+  el.value = value ?? '';
+}
+function stageLabelsForChain(chain){
+  if(!chain || !Array.isArray(chain.blocks)) return [];
+  return chain.blocks
+    .filter(b=>b && !b.isClone)
+    .map(b=> b.displayLabel || stageLabel(b.type));
+}
+function populateStageReadonly(chain){
+  if(!stageReadonlyEl) return;
+  const labels = stageLabelsForChain(chain);
+  if(!labels.length){
+    stageReadonlyEl.innerHTML = '<span class="badge">未配置阶段</span>';
+    return;
+  }
+  stageReadonlyEl.innerHTML = labels.map(label=>`<span class="badge">${label}</span>`).join('');
+}
+function prepareNewForm(){
+  editingChainId = null;
+  modalEl?.classList.remove('editing');
+  if(createTitle) createTitle.textContent = '新增派单';
+  if(submitBtn) submitBtn.textContent = '保存并生成派单';
+  const tpl = templateInput?.value || stageState.templateId || STAGE_TEMPLATES[0].id;
+  if(templateInput){
+    templateInput.disabled = false;
+    templateInput.value = tpl;
+  }
+  const samplesPreset = [3,4,4,6,8][Math.floor(Math.random()*5)];
+  const expDefaults = defaultExperimentValues(tpl, { samples: samplesPreset });
+  applyTemplateSelection(tpl, { experimentValues: expDefaults });
+  if(stageReadonlyEl) stageReadonlyEl.innerHTML = '';
+  if(snapInput){
+    snapInput.disabled = false;
+    snapInput.checked = true;
+  }
+  createSequence += 1;
+  setFieldValue(contractInput, generateContractNo());
+  setFieldValue(customerInput, `${pickPreset(createPresets.customers)}客户`);
+  setFieldValue(speciesInput, pickPreset(createPresets.species) || '人');
+  setFieldValue(salesInput, pickPreset(createPresets.sales));
+  setFieldValue(financeInput, '');
+  setFieldValue(labInput, pickPreset(createPresets.labs));
+  const now = nowDate();
+  setFieldValue(dateInput, fmtDate(now));
+  setFieldValue(timeInput, minutesToHHMM(defaultStartMinutes()));
+  setFieldValue(emergencyNameInput, pickPreset(createPresets.emergencyNames));
+  setFieldValue(emergencyPhoneInput, pickPreset(createPresets.emergencyPhones));
+  setExperimentFieldValue('cellType', pickPreset(createPresets.cellTypes) || expDefaults.cellType || '');
+  setExperimentFieldValue('sampleNote', pickPreset(createPresets.sampleNotes) || expDefaults.sampleNote || '');
+  if(expDefaults.samples != null){ setExperimentFieldValue('samples', expDefaults.samples); }
+}
+function prepareEditForm(chain){
+  if(!chain) return;
+  editingChainId = chain.chainId;
+  modalEl?.classList.add('editing');
+  if(createTitle) createTitle.textContent = `编辑派单 ${chain.meta?.orderNo || ''}`;
+  if(submitBtn) submitBtn.textContent = '保存修改';
+  const tplId = chain.meta?.stageTemplateId || stageState.templateId || STAGE_TEMPLATES[0].id;
+  if(templateInput){
+    templateInput.value = tplId;
+    templateInput.disabled = true;
+  }
+  if(snapInput){
+    snapInput.checked = chain.meta?.snapEnabled !== false;
+    snapInput.disabled = true;
+  }
+  const stageOrder = Array.isArray(chain.meta?.stageOrder) && chain.meta.stageOrder.length
+    ? [...chain.meta.stageOrder]
+    : chain.blocks.filter(b=>!b.isClone).map(b=>b.type);
+  applyTemplateSelection(tplId, {
+    stageOrder,
+    stageOverrides: chain.meta?.stageOverrides,
+    enabledStages: stageOrder,
+    experimentValues: { ...defaultExperimentValues(tplId), ...(chain.meta?.experimentInfo || {}) }
+  });
+  setFieldValue(contractInput, chain.meta?.contractNo || '');
+  setFieldValue(customerInput, chain.meta?.customer || '');
+  setFieldValue(speciesInput, chain.meta?.species || '');
+  setFieldValue(salesInput, chain.meta?.sales || '');
+  setFieldValue(financeInput, chain.meta?.financeInfo || '');
+  setFieldValue(labInput, chain.meta?.labSite || chain.meta?.address || '');
+  setFieldValue(emergencyNameInput, chain.meta?.emergencyName || '');
+  setFieldValue(emergencyPhoneInput, chain.meta?.emergencyPhone || '');
+  const baseAbs = chainBaseAbs(chain);
+  const firstBlock = chain.blocks.find(b=>!b.isClone) || chain.blocks[0];
+  const startAbs = firstBlock ? baseAbs + (firstBlock.startAbs || 0) : baseAbs;
+  const startDt = minutesToDate(startAbs);
+  if(startDt){
+    setFieldValue(dateInput, fmtDate(startDt));
+    setFieldValue(timeInput, `${String(startDt.getHours()).padStart(2,'0')}:${String(startDt.getMinutes()).padStart(2,'0')}`);
+  }else{
+    setFieldValue(dateInput, chain.meta?.date || fmtDate(nowDate()));
+    setFieldValue(timeInput, chain.meta?.appointmentTime || '10:00');
+  }
+  populateStageReadonly(chain);
+}
+function defaultStartMinutes(){
+  const {hh, mm} = getDateParts();
+  let total = hh*60 + mm + 45;
+  total = Math.ceil(total / SLOT_MINS) * SLOT_MINS;
+  const earliest = 8*60;
+  const latest = 20*60;
+  if(total < earliest) total = earliest;
+  if(total > latest) total = Math.max(earliest + SLOT_MINS*4, 9*60);
+  return clamp(total, earliest, latest);
+}
+function createChainFromStages({
+  stages = [],
+  overrides = {},
+  samples = 4,
+  startMin = defaultStartMinutes(),
+  day = 1,
+  snapEnabled = true,
+  meta = {},
+  status = 'pendingReserve'
+} = {}){
+  if(!Array.isArray(stages) || stages.length === 0){
+    throw new Error('createChainFromStages: stages 不能为空');
+  }
+  const chainId = meta.chainId || uid('CH');
+  const orderNo = meta.orderNo || genOrderNo();
+  const baseMeta = {
+    product: meta.product || templateProductName(meta.stageTemplateId || stageState.templateId),
+    species: meta.species || '人',
+    tissue: meta.tissue || '—',
+    labSite: meta.labSite || meta.address || '上海上机室',
+    samples,
+    tags: Array.isArray(meta.tags) ? [...meta.tags] : [],
+    orderNo,
+    customer: meta.customer || '测试客户',
+    sales: meta.sales || '测试销售',
+    address: meta.address || meta.labSite || '上海上机室',
+    date: meta.date || fmtDate(nowDate()),
+    appointmentTime: meta.appointmentTime || '10:00',
+    note: meta.note || '',
+    contractNo: meta.contractNo || generateContractNo(),
+    cellType: meta.cellType || '',
+    cellTarget: meta.cellTarget || '',
+    sampleInfoNote: meta.sampleInfoNote || meta.note || '',
+    financeInfo: meta.financeInfo || '',
+    emergencyName: meta.emergencyName || '',
+    emergencyPhone: meta.emergencyPhone || '',
+    stageTemplateId: meta.stageTemplateId || stageState.templateId,
+    stageOrder: Array.isArray(meta.stageOrder) && meta.stageOrder.length ? [...meta.stageOrder] : [...stages],
+    stageOverrides: { ...(meta.stageOverrides || overrides) },
+    experimentInfo: { ...(meta.experimentInfo || {}) },
+    snapEnabled
+  };
+  const blocks = stages.map((stageId, idx)=>{
+    const block = {
+      id: uid('B'),
+      type: stageId,
+      assignees: Array.isArray(meta.assignees?.[stageId]) ? [...meta.assignees[stageId]] : [],
+      linkedNext: snapEnabled && idx < stages.length - 1,
+      displayLabel: overrides[stageId] || stageLabel(stageId)
+    };
+    return block;
+  });
+  const chain = {
+    chainId,
+    meta: baseMeta,
+    status,
+    blocks
+  };
+  chain.blocks.forEach(block=>{
+    block.assignees = [];
+  });
+  applyDurationsBySamples(chain, { anchor:'head', start:startMin, day });
+  if(!snapEnabled){
+    for(let i=0;i<chain.blocks.length-1;i++){
+      const cur = chain.blocks[i];
+      const nxt = chain.blocks[i+1];
+      const curEnd = (cur.startAbs||0) + (cur.dur || (cur.end - cur.start) || SLOT_MINS);
+      nxt.startAbs = curEnd + SAFE_GAP_MIN;
+    }
+  }
+  syncBlockTimes(chain);
+  return chain;
+}
+function seedDemoChains(){
+  if(state.chains.length) return;
+  const baseYear = BASE_DATE ? BASE_DATE.getFullYear() : nowDate().getFullYear();
+  const windowStart = new Date(baseYear, 9, 22, 0, 0, 0);
+  const windowEnd = new Date(baseYear, 9, 30, 18, 0, 0);
+  if(Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) return;
+  const baseDate = new Date(windowStart.getTime());
+  const templateId = stageState.templateId;
+  const template = templateById(templateId) || STAGE_TEMPLATES[0];
+  const baseStages = stageState.order.filter(id=> stageState.enabled.has(id));
+  if(baseStages.length === 0) return;
+  const total = 10;
+  const spanMinutes = Math.round((windowEnd.getTime() - windowStart.getTime()) / 60000);
+  const stepMinutes = total > 1 ? Math.floor(spanMinutes / (total - 1)) : 0;
+  for(let i=0;i<total;i++){
+    const cloneDate = new Date(windowStart.getTime() + i * stepMinutes * 60000);
+    const diffMinutes = Math.max(0, Math.round((cloneDate.getTime() - baseDate.getTime()) / 60000));
+    const diffDays = Math.floor(diffMinutes / DAY_SPAN);
+    const startMin = (cloneDate.getHours() * 60 + cloneDate.getMinutes());
+    const sampleCount = 3 + (i % 4);
+    const experimentInfo = {
+      ...defaultExperimentValues(templateId, { samples: sampleCount }),
+      cellType: i % 2 === 0 ? 'PBMC Demo' : '肿瘤样本',
+      sampleNote: `Demo 样本 ${i+1}`
+    };
+    if(experimentInfo.samples == null){
+      experimentInfo.samples = sampleCount;
+    }
+    const chain = createChainFromStages({
+      stages: baseStages,
+      overrides: stageState.overrides,
+      samples: sampleCount,
+      startMin,
+      day: diffDays + 1,
+      snapEnabled: true,
+      meta: {
+        product: templateProductName(templateId),
+        labSite: i % 2 === 0 ? '上海上机室' : '广州上机室',
+        customer: `待处理客户${i+1}`,
+        sales: `销售${String.fromCharCode(65+i)}`,
+        address: '上海上机室',
+        date: fmtDate(cloneDate),
+        note: experimentInfo.sampleNote || '',
+        contractNo: generateContractNo(),
+        species: '人',
+        samples: sampleCount,
+        cellType: experimentInfo.cellType || '',
+        cellTarget: experimentInfo.captureTarget || experimentInfo.cellTarget || '',
+        sampleInfoNote: experimentInfo.sampleNote || '',
+        financeInfo: '',
+        emergencyName: '',
+        emergencyPhone: '',
+        stageTemplateId: templateId,
+        stageOverrides: { ...stageState.overrides },
+        stageOrder: [...stageState.order],
+        experimentInfo,
+        orderNo: `DEMO-${cloneDate.getFullYear()}${String(cloneDate.getMonth()+1).padStart(2,'0')}${String(cloneDate.getDate()).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`
+      },
+      status: 'pendingReserve'
+    });
+    chain.blocks.forEach(b=>{ b.assignees = []; });
+    state.chains.push(chain);
+  }
+}
+function openCreate(chain=null){
+  if(chain){
+    prepareEditForm(chain);
+  }else{
+    prepareNewForm();
+  }
+  mask?.classList.add('show');
+  mask?.setAttribute('aria-hidden','false');
+}
+function closeCreate(){
+  mask?.classList.remove('show');
+  mask?.setAttribute('aria-hidden','true');
+  editingChainId = null;
+  modalEl?.classList.remove('editing');
+}
+openBtn?.addEventListener('click', ()=> openCreate());
+closeBtn?.addEventListener('click', closeCreate);
+cancelBtn?.addEventListener('click', closeCreate);
+document.addEventListener('click', (ev)=>{
+  const target = ev.target;
+  if(!(target instanceof Element)) return;
+  const btn = target.closest('.card-settings');
+  if(!btn) return;
+  const blockEl = btn.closest('.block');
+  if(!blockEl) return;
+  const chainId = blockEl.dataset.chain;
+  if(!chainId) return;
+  const chain = state.chains.find(c=>c.chainId === chainId);
+  if(!chain) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  openCreate(chain);
+});
+function genOrderNo(){ const d=getDateParts(); return `ORD-${d.y}${String(d.m).padStart(2,'0')}${String(d.d).padStart(2,'0')}-${uid('').slice(-4).toUpperCase()}`; }
+function val(id){ return document.getElementById(id)?.value?.trim(); }
+submitBtn?.addEventListener('click', ()=>{
+  const contractNo = val('fContract') || generateContractNo();
+  const customer = val('fCustomer')||'测试客户';
+  const species = val('fSpecies') || '人';
+  const sales = val('fSales')||'测试销售';
+  const labSite = val('fLab')||'上海上机室';
+  const dateStr = val('fDate') || fmtDate(nowDate());
+  const timeStrInput = val('fTime') || '10:00';
+  const [hhRaw,mmRaw] = timeStrInput.split(':').map(n=>parseInt(n,10));
+  let startMin = (Number.isFinite(hhRaw) && Number.isFinite(mmRaw)) ? (hhRaw*60 + mmRaw) : defaultStartMinutes();
+  startMin = clamp(startMin, DAY_START, DAY_END - SLOT_MINS);
+  const financeInfo = document.getElementById('fFinanceInfo')?.value?.trim() || '';
+  const emergencyName = val('fEmergencyName') || '';
+  const emergencyPhone = val('fEmergencyPhone') || '';
+  const snapEnabled = document.getElementById('fSnapEnabled')?.checked !== false;
+  const templateId = document.getElementById('fTemplate')?.value || stageState.templateId;
+  const template = templateById(templateId) || STAGE_TEMPLATES[0];
+  const experimentValues = collectExperimentValues(templateId);
+  const sampleField = template.infoFields?.find(f=>f.role==='samples');
+  let samples = sampleField ? Number(experimentValues[sampleField.id]) : NaN;
+  if(!Number.isFinite(samples) || samples <= 0){
+    samples = sampleField && Number.isFinite(Number(sampleField?.default)) ? Number(sampleField.default) : 1;
+  }
+  samples = Math.max(1, Math.round(samples));
+  if(sampleField){
+    experimentValues[sampleField.id] = samples;
+  }
+  const cellTypeField = template.infoFields?.find(f=>f.role==='cellType');
+  const cellType = cellTypeField ? (experimentValues[cellTypeField.id] || '') : '';
+  const cellTargetField = template.infoFields?.find(f=>f.role==='cellTarget');
+  const cellTarget = cellTargetField ? (experimentValues[cellTargetField.id] || '') : '';
+  const sampleInfoNote = typeof experimentValues.sampleNote === 'string' ? experimentValues.sampleNote : '';
+  const selectedStages = stageState.order.filter(id => stageState.enabled.has(id));
+  if(!selectedStages.length){ toast('至少选择一个环节'); return; }
+  const productName = templateProductName(templateId);
+  const isEdit = Boolean(editingChainId);
+  if(isEdit){
+    const chain = state.chains.find(c=>c.chainId===editingChainId);
+    if(!chain){ toast('未找到要编辑的派单'); return; }
+    const baseBefore = chainBaseAbs(chain);
+    const firstBlock = chain.blocks.find(b=>!b.isClone) || chain.blocks[0];
+    const originalAbs = firstBlock ? baseBefore + (firstBlock.startAbs || 0) : baseBefore;
+    const parsedAbs = parseInputToAbs(`${dateStr} ${timeStrInput}`);
+    const targetAbs = parsedAbs != null ? parsedAbs : originalAbs;
+    const delta = targetAbs - originalAbs;
+    if(Math.abs(delta) > 0.1){
+      shiftChainBlocks(chain, delta);
+    }
+    chain.meta = {
+      ...chain.meta,
+      contractNo,
+      customer,
+      species,
+      sales,
+      product: productName,
+      labSite,
+      address: labSite,
+      date: dateStr,
+      appointmentTime: timeStrInput,
+      samples,
+      cellType,
+      cellTarget,
+      sampleInfoNote,
+      note: sampleInfoNote,
+      financeInfo,
+      emergencyName,
+      emergencyPhone,
+      stageTemplateId: templateId,
+      stageOrder: [...stageState.order],
+      stageOverrides: { ...stageState.overrides },
+      experimentInfo: { ...experimentValues },
+      snapEnabled
+    };
+    chain.meta.samples = samples;
+    const durationMap = new Map();
+    chain.blocks.forEach(block=>{
+      if(block && !block.isClone){
+        const dur = stageDuration(block.type, samples);
+        block.dur = dur;
+        durationMap.set(block.id, dur);
+      }
+    });
+    chain.blocks.forEach(block=>{
+      if(block?.isClone && block.sourceId && durationMap.has(block.sourceId)){
+        block.dur = durationMap.get(block.sourceId);
+      }
+    });
+    const mainIndexes = chain.blocks.map((blk, idx)=> (!blk || blk.isClone) ? null : idx).filter(idx=> idx != null);
+    applyAutoSnapGroup(chain, mainIndexes);
+    syncBlockTimes(chain);
+    renderBlocks();
+    closeCreate();
+    toast(`已更新派单：${chain.meta.orderNo || chain.chainId}`);
+    return;
+  }
+  const chain = createChainFromStages({
+    stages: selectedStages,
+    overrides: stageState.overrides,
+    samples,
+    startMin,
+    day:1,
+    snapEnabled,
+    meta: {
+      product: productName,
+      labSite,
+      customer,
+      sales,
+      address: labSite,
+      date: dateStr,
+      appointmentTime: timeStrInput,
+      note: sampleInfoNote,
+      contractNo,
+      species,
+      samples,
+      cellType,
+      cellTarget,
+      sampleInfoNote,
+      financeInfo,
+      emergencyName,
+      emergencyPhone,
+      stageTemplateId: templateId,
+      stageOverrides: { ...stageState.overrides },
+      stageOrder: [...stageState.order],
+      experimentInfo: { ...experimentValues },
+      snapEnabled,
+      orderNo: genOrderNo()
+    },
+    status: 'pendingReserve'
+  });
+  state.chains.push(chain);
+  renderBlocks();
+  closeCreate();
+  toast('已生成派单：' + (chain.meta.orderNo || chain.chainId) + '（待分配）');
+});
+// ===== App Bootstrap =====
+// Ensure durations reflect latest rules (exp=3h by default)
+seedDemoChains();
+state.chains.forEach(ch=> applyDurationsBySamples(ch));
+buildTicks();
+buildGrid();
+renderBlocks();
+placeNowLine();
+updateCenterLine();
+setInterval(()=>{ placeNowLine(); updateCenterLine(); refreshPendingPlacement(); adjustCenterLineForPanel(); }, 60*1000); // 每分钟更新一次位置
+setInterval(()=> applyUrgencyStyles(), 5*60*1000);
+const boardEl = document.getElementById('board');
+if(boardEl){
+  boardEl.addEventListener('scroll', ()=>{
+    placeNowLine();
+    updateCenterLine();
+    refreshPendingPlacement();
+    applyUrgencyStyles();
+    adjustCenterLineForPanel();
+  });
+}
+// 在窗口尺寸变化时，保持 2 天视窗并居中到现在
+window.addEventListener('resize', debounce(()=>{
+  setViewportDays(2);
+  centerOnNow();
+  updateCenterLine();
+  refreshPendingPlacement();
+  applyUrgencyStyles();
+  adjustCenterLineForPanel();
+}, 200));
+// 首屏：等待一帧后把视窗固定为 1 天并居中“现在”（避免布局还没完成时滚动失败）
+requestAnimationFrame(()=>{ setViewportDays(1); centerOnNow(); selfCheck({autofix:true}); });
+requestAnimationFrame(()=> applyUrgencyStyles());
+</script>
+</body>
+</html>
